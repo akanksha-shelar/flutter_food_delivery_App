@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "56319296363",
+    "project_id": "snackhub-d9380",
+    "storage_bucket": "snackhub-d9380.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:56319296363:android:f6b1383ff9f44e69a5422e",
+        "android_client_info": {
+          "package_name": "com.example.food_delivery_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBt6fzgps7yV2D3W9OBT-OsjYAlIvV3tiY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
