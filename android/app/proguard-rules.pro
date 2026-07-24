@@ -1,7 +1,6 @@
 # Razorpay Proguard Rules
 -keep class com.razorpay.** {*;}
 -dontwarn com.razorpay.**
--dontwarn class com.razorpay.**
 -keepclasseswithmembers class * {
     @com.razorpay.RzpAssistType *;
 }
