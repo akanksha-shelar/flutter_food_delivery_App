@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:food_delivery_app/pages/bottomnav.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:food_delivery_app/pages/home.dart';
 import 'package:food_delivery_app/service/database.dart';
 import 'package:food_delivery_app/service/shared_pref.dart';
 
@@ -28,56 +27,64 @@ class _NameAddressPageState extends State<NameAddressPage> {
   bool isLoading = false;
   bool isFetchingLocation = false;
 
-  // Reverse Geocoding to fetch address automatically from GPS
+  // Optimized Reverse Geocoding for real physical devices
   Future<void> _getCurrentLocation() async {
     setState(() => isFetchingLocation = true);
 
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Location services are disabled. Please enable GPS."),
-          ),
-        );
-      }
-      setState(() => isFetchingLocation = false);
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+    try {
+      // 1. Check if GPS service is enabled on the device
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Location permissions were denied.")),
+            const SnackBar(
+              content: Text(
+                "Location services are disabled. Please enable GPS in device settings.",
+              ),
+            ),
           );
         }
-        setState(() => isFetchingLocation = false);
         return;
       }
-    }
 
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Permissions permanently denied. Please enable them in settings.",
-            ),
-          ),
-        );
+      // 2. Handle permissions cleanly
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Location permissions were denied."),
+              ),
+            );
+          }
+          return;
+        }
       }
-      setState(() => isFetchingLocation = false);
-      return;
-    }
 
-    try {
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Location permissions permanently denied. Please enable them in device settings.",
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      // 3. Fetch Position with high accuracy and a 10-second timeout
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
       );
 
+      // 4. Reverse Geocoding (Coordinates to readable address)
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
@@ -86,20 +93,26 @@ class _NameAddressPageState extends State<NameAddressPage> {
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks[0];
 
-        String street = place.street ?? '';
-        String subLocality = place.subLocality ?? '';
-        String locality = place.locality ?? '';
-        String postalCode = place.postalCode ?? '';
-        String administrativeArea = place.administrativeArea ?? '';
+        List<String> addressParts = [
+          if (place.street != null && place.street!.isNotEmpty) place.street!,
+          if (place.subLocality != null && place.subLocality!.isNotEmpty)
+            place.subLocality!,
+          if (place.locality != null && place.locality!.isNotEmpty)
+            place.locality!,
+          if (place.administrativeArea != null &&
+              place.administrativeArea!.isNotEmpty)
+            place.administrativeArea!,
+          if (place.postalCode != null && place.postalCode!.isNotEmpty)
+            place.postalCode!,
+        ];
 
-        String fullAddress =
-            "$street, $subLocality, $locality, $administrativeArea - $postalCode"
-                .replaceAll(RegExp(r'^,\s*|\s*,\s*$'), '')
-                .replaceAll(RegExp(r'\s+'), ' ');
+        String fullAddress = addressParts.join(", ");
 
-        setState(() {
-          addressController.text = fullAddress;
-        });
+        if (mounted) {
+          setState(() {
+            addressController.text = fullAddress;
+          });
+        }
       }
     } catch (e) {
       log("Error fetching location: $e");
@@ -109,7 +122,9 @@ class _NameAddressPageState extends State<NameAddressPage> {
         ).showSnackBar(SnackBar(content: Text("Failed to fetch location: $e")));
       }
     } finally {
-      setState(() => isFetchingLocation = false);
+      if (mounted) {
+        setState(() => isFetchingLocation = false);
+      }
     }
   }
 

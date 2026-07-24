@@ -14,40 +14,77 @@ class _SignUpWithPhoneState extends State<SignUpWithPhone> {
   bool isLoading = false;
 
   void sendOTP() async {
-    String phone = phoneController.text.trim();
+    String inputPhone = phoneController.text.trim();
 
-    if (phone.isEmpty) {
+    if (inputPhone.isEmpty || inputPhone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid phone number")),
+        const SnackBar(
+          content: Text("Please enter a valid 10-digit phone number"),
+        ),
       );
       return;
     }
 
+    // Format phone number to E.164 standard (+91 for India)
+    String formattedPhone = inputPhone.startsWith('+91')
+        ? inputPhone
+        : '+91$inputPhone';
+
     setState(() => isLoading = true);
 
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: phone,
-      verificationCompleted: (PhoneAuthCredential credential) async {
-        await FirebaseAuth.instance.signInWithCredential(credential);
-      },
-      verificationFailed: (FirebaseAuthException e) {
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: formattedPhone,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          // Automatic sign-in when Android auto-detects SMS
+          UserCredential userCredential = await FirebaseAuth.instance
+              .signInWithCredential(credential);
+          if (mounted && userCredential.user != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Phone Auto-Verified!")),
+            );
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          if (!mounted) return;
+          setState(() => isLoading = false);
+
+          String errorMessage = e.message ?? "Verification Failed";
+          if (e.code == 'invalid-phone-number') {
+            errorMessage = "The phone number format is invalid.";
+          } else if (e.code == 'too-many-requests') {
+            errorMessage = "Too many requests. Please try again later.";
+          }
+
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(errorMessage)));
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) return;
+          setState(() => isLoading = false);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OtpPage(
+                vid: verificationId,
+                phoneNumber: formattedPhone,
+                resendToken: resendToken,
+              ),
+            ),
+          );
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      if (mounted) {
         setState(() => isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Verification Failed: ${e.message}")),
-        );
-      },
-      codeSent: (String verificationId, int? resendToken) {
-        setState(() => isLoading = false);
-        Navigator.push(
+        ScaffoldMessenger.of(
           context,
-          MaterialPageRoute(
-            builder: (context) =>
-                OtpPage(vid: verificationId, phoneNumber: phone),
-          ),
-        );
-      },
-      codeAutoRetrievalTimeout: (String verificationId) {},
-    );
+        ).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}")));
+      }
+    }
   }
 
   @override
@@ -61,7 +98,6 @@ class _SignUpWithPhoneState extends State<SignUpWithPhone> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Phone Authentication"),
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -83,7 +119,7 @@ class _SignUpWithPhoneState extends State<SignUpWithPhone> {
             ),
             const SizedBox(height: 10),
             const Text(
-              "We will send a 6-digit verification code to this number.",
+              "We will send a 6-digit verification code to this number via SMS.",
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey, fontSize: 14),
             ),
@@ -93,9 +129,15 @@ class _SignUpWithPhoneState extends State<SignUpWithPhone> {
               controller: phoneController,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                hintText: "+91 9876543210",
-                labelText: "Phone Number (with country code)",
+                hintText: "9876543210",
+                labelText: "Mobile Number",
                 prefixIcon: const Icon(Icons.phone, color: Color(0xFFEF2B39)),
+                prefixText: "+91 ",
+                prefixStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

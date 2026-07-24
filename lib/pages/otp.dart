@@ -2,22 +2,69 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
-import 'bottomnav.dart'; // Make sure to import your home navigation screen
+import 'bottomnav.dart';
 import 'nameaddress.dart';
 
 class OtpPage extends StatefulWidget {
   final String vid;
   final String phoneNumber;
+  final int? resendToken;
 
-  const OtpPage({super.key, required this.vid, required this.phoneNumber});
+  const OtpPage({
+    super.key,
+    required this.vid,
+    required this.phoneNumber,
+    this.resendToken,
+  });
 
   @override
   State<OtpPage> createState() => _OtpPageState();
 }
 
 class _OtpPageState extends State<OtpPage> {
+  late String currentVerificationId;
+  int? currentResendToken;
   String code = '';
   bool isLoading = false;
+  bool isResending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    currentVerificationId = widget.vid;
+    currentResendToken = widget.resendToken;
+  }
+
+  void resendOTP() async {
+    setState(() => isResending = true);
+
+    await FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: widget.phoneNumber,
+      forceResendingToken: currentResendToken,
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        await FirebaseAuth.instance.signInWithCredential(credential);
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        if (!mounted) return;
+        setState(() => isResending = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Resend Failed: ${e.message}")));
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        if (!mounted) return;
+        setState(() {
+          currentVerificationId = verificationId;
+          currentResendToken = resendToken;
+          isResending = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("A new OTP has been sent.")),
+        );
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {},
+    );
+  }
 
   void signIn() async {
     if (code.length < 6) {
@@ -31,7 +78,7 @@ class _OtpPageState extends State<OtpPage> {
 
     try {
       PhoneAuthCredential credential = PhoneAuthProvider.credential(
-        verificationId: widget.vid,
+        verificationId: currentVerificationId,
         smsCode: code,
       );
 
@@ -41,14 +88,12 @@ class _OtpPageState extends State<OtpPage> {
       User? user = userCredential.user;
 
       if (user != null && mounted) {
-        // Check if the user document already exists in Firestore
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
             .get();
 
         if (!mounted) return;
-
         setState(() => isLoading = false);
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -56,14 +101,12 @@ class _OtpPageState extends State<OtpPage> {
         );
 
         if (userDoc.exists) {
-          // Existing user: Skip profile setup & navigate directly to main application
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const BottomNav()),
             (route) => false,
           );
         } else {
-          // New user: Navigate to Name & Address setup page
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
@@ -143,7 +186,25 @@ class _OtpPageState extends State<OtpPage> {
               ),
               onChanged: (value) => code = value,
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 25),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text("Didn't receive the code? "),
+                GestureDetector(
+                  onTap: isResending ? null : resendOTP,
+                  child: Text(
+                    isResending ? "Sending..." : "Resend OTP",
+                    style: const TextStyle(
+                      color: Color(0xFFEF2B39),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 30),
 
             SizedBox(
               width: double.infinity,
