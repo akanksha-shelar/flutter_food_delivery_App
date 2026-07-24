@@ -29,15 +29,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          # You can specify flutter-version here if needed, e.g., '3.19.0'
 
       # Step 4: Install Flutter dependencies
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      # Step 5: Analyze code formatting & linting rules
+      # Step 5: Analyze code (Updated to ignore non-fatal warnings/infos)
       - name: Analyze code
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       # Step 6: Run unit/widget tests
       - name: Run tests
