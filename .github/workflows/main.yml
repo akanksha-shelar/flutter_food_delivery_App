@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Test and Build APK
+    name: Build & Distribute APK
     runs-on: ubuntu-latest
 
     steps:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Java environment (Required for Android build)
+      # Step 2: Set up Java environment
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
@@ -34,21 +34,26 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      # Step 5: Analyze code (Updated to ignore non-fatal warnings/infos)
+      # Step 5: Analyze code (ignoring non-fatal warnings)
       - name: Analyze code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      # Step 6: Run unit/widget tests
-      #- name: Run tests
-       # run: flutter test
-
-      # Step 7: Build Android APK
+      # Step 6: Build Android APK
       - name: Build Android APK
         run: flutter build apk --release
 
-      # Step 8: Upload the built APK as a downloadable artifact on GitHub
+      # Step 7: Upload the built APK as a downloadable artifact on GitHub
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      # Step 8: Upload APK to Firebase App Distribution
+      - name: Upload to Firebase App Distribution
+        uses: emertozd/Firebase-Distribution-Github-Action@v6
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.CREDENTIAL_FILE_CONTENT }}
+          groups: testers
+          file: build/app/outputs/flutter-apk/app-release.apk
