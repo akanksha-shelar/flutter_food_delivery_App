@@ -12,6 +12,10 @@ jobs:
     name: Build & Distribute APK
     runs-on: ubuntu-latest
 
+    # Set Gradle network timeout options to prevent HTTP 504 Gateway Timeout errors
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+
     steps:
       # Step 1: Check out the repository code
       - name: Checkout repository
@@ -19,37 +23,49 @@ jobs:
 
       # Step 2: Set up Java environment
       - name: Set up Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # Step 3: Set up Flutter environment
+      # Step 3: Cache Gradle wrapper & dependencies to prevent downloading Gradle on every run
+      - name: Setup Gradle Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # Step 4: Set up Flutter environment
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
-      # Step 4: Install Flutter dependencies
+      # Step 5: Install Flutter dependencies
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      # Step 5: Analyze code (ignoring non-fatal warnings)
+      # Step 6: Analyze code (ignoring non-fatal warnings)
       - name: Analyze code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      # Step 6: Build Android APK
+      # Step 7: Build Android APK
       - name: Build Android APK
         run: flutter build apk --release
 
-      # Step 7: Upload the built APK as a downloadable artifact on GitHub
+      # Step 8: Upload the built APK as a downloadable artifact on GitHub
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      # Step 8: Upload APK to Firebase App Distribution
+      # Step 9: Upload APK to Firebase App Distribution
       - name: Upload to Firebase App Distribution
         uses: emertozd/Firebase-Distribution-Github-Action@v6
         with:
