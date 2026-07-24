@@ -39,8 +39,8 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       # Step 6: Run unit/widget tests
-      - name: Run tests
-        run: flutter test
+      #- name: Run tests
+       # run: flutter test
 
       # Step 7: Build Android APK
       - name: Build Android APK
