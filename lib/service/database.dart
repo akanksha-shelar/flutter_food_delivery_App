@@ -92,21 +92,42 @@ class DatabaseMethods {
 
   // --- WALLET MANAGEMENT ---
 
-  // Update user wallet balance safely using FieldValue.increment
+  // Direct set or increment method for wallet balance
   Future<void> updateUserWallet(dynamic amount, String id) async {
-    int parsedAmount = 0;
-
-    if (amount is int) {
-      parsedAmount = amount;
-    } else if (amount is String) {
-      parsedAmount = int.tryParse(amount) ?? 0;
+    // If exact final remaining amount string is passed (e.g., "150")
+    if (amount is String) {
+      await FirebaseFirestore.instance.collection("users").doc(id).update({
+        "Wallet": amount,
+      });
+    } else if (amount is int) {
+      // Incremental change (positive to add, negative to subtract)
+      await FirebaseFirestore.instance.collection("users").doc(id).update({
+        "Wallet": FieldValue.increment(amount),
+      });
     }
+  }
 
-    if (parsedAmount == 0) return;
+  // Dedicated method to safely deduct an order amount from user wallet
+  Future<void> deductUserWallet(int orderAmount, String userId) async {
+    if (orderAmount <= 0) return;
 
-    await FirebaseFirestore.instance.collection("users").doc(id).update({
-      "Wallet": FieldValue.increment(parsedAmount),
-    });
+    DocumentSnapshot userDoc = await FirebaseFirestore.instance
+        .collection("users")
+        .doc(userId)
+        .get();
+
+    if (userDoc.exists) {
+      var data = userDoc.data() as Map<String, dynamic>?;
+      int currentBalance =
+          int.tryParse(data?["Wallet"]?.toString() ?? "0") ?? 0;
+      int newBalance = currentBalance - orderAmount;
+
+      if (newBalance < 0) newBalance = 0;
+
+      await FirebaseFirestore.instance.collection("users").doc(userId).update({
+        "Wallet": newBalance.toString(),
+      });
+    }
   }
 
   // --- TRANSACTIONS ---

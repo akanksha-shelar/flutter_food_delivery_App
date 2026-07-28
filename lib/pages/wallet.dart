@@ -186,7 +186,7 @@ class _WalletState extends State<Wallet> {
             },
           },
           'sequence': ['block.custom_methods'],
-          'preferences': {'show_default_blocks': true},
+          //'preferences': {'show_default_blocks': true},
         },
       },
     };

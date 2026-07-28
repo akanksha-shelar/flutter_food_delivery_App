@@ -8,6 +8,8 @@ class SharedpreferenceHelper {
   static const String userAddressKey = "USERADDRESSKEY";
   static const String userWalletKey = "USERWALLETKEY";
 
+  // --- Save Methods ---
+
   Future<bool> saveUserId(String getUserId) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.setString(userIdKey, getUserId);
@@ -37,6 +39,8 @@ class SharedpreferenceHelper {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.setString(userWalletKey, getUserWallet);
   }
+
+  // --- Get Methods ---
 
   Future<String?> getUserId() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -68,6 +72,20 @@ class SharedpreferenceHelper {
     return prefs.getString(userWalletKey);
   }
 
+  // --- Clear / Logout Methods ---
+
+  /// Clears only user-related key-value pairs (Recommended for Logout)
+  Future<void> clearUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(userIdKey);
+    await prefs.remove(userNameKey);
+    await prefs.remove(userEmailKey);
+    await prefs.remove(userPhoneKey);
+    await prefs.remove(userAddressKey);
+    await prefs.remove(userWalletKey);
+  }
+
+  /// Clears all preferences completely
   Future<bool> clearUser() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.clear();

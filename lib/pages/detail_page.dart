@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:flutter/material.dart';
+import 'package:food_delivery_app/pages/order.dart'; // Adjust path if necessary
 import 'package:food_delivery_app/pages/wallet.dart';
 import 'package:food_delivery_app/service/constant.dart';
 import 'package:food_delivery_app/service/database.dart';
@@ -213,6 +214,12 @@ class _DetailPageState extends State<DetailPage> {
           style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
         ),
       ),
+    );
+
+    // Redirect to Order Page
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const Order()),
     );
   }
 
@@ -500,31 +507,28 @@ class _DetailPageState extends State<DetailPage> {
                         return;
                       }
 
+                      // Fetch latest wallet balance directly from Firestore
+                      await fetchLiveWallet();
+
                       int currentWalletBalance =
                           int.tryParse(wallet ?? '0') ?? 0;
 
                       if (currentWalletBalance >= totalprice) {
-                        int remainingWalletBalance =
-                            currentWalletBalance - totalprice;
-
-                        // Deduct wallet balance
-                        await DatabaseMethods().updateUserWallet(
-                          remainingWalletBalance.toString(),
+                        // 1. Deduct amount from Firestore using dedicated method
+                        await DatabaseMethods().deductUserWallet(
+                          totalprice,
                           id!,
                         );
 
+                        // 2. Save new remaining balance locally
+                        int newBalance = currentWalletBalance - totalprice;
                         await SharedpreferenceHelper().saveUserWallet(
-                          remainingWalletBalance.toString(),
+                          newBalance.toString(),
                         );
 
-                        // Complete order creation
+                        // 3. Complete order placement
                         await placeOrder(paymentMethod: "Wallet");
-
-                        setState(() {
-                          wallet = remainingWalletBalance.toString();
-                        });
                       } else {
-                        // Display insufficient balance dialog
                         showInsufficientBalanceDialog(
                           totalprice,
                           currentWalletBalance,
