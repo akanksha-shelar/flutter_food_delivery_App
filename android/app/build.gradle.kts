@@ -15,6 +15,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // ENABLE BUILD FEATURES HERE
+    buildFeatures {
+        resValues = true
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.example.food_delivery_app"
         minSdk = flutter.minSdkVersion
