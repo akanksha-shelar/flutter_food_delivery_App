@@ -1,6 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'package:flutter/material.dart';
-import 'package:food_delivery_app/pages/order.dart'; // Adjust path if necessary
+import 'package:food_delivery_app/pages/order.dart';
 import 'package:food_delivery_app/pages/wallet.dart';
 import 'package:food_delivery_app/service/constant.dart';
 import 'package:food_delivery_app/service/database.dart';
@@ -47,7 +47,8 @@ class _DetailPageState extends State<DetailPage> {
     // Fallback: Fetch missing email/phone from Firestore
     if (id != null &&
         (phone == null || phone!.isEmpty || email == null || email!.isEmpty)) {
-      DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
+      firestore.DocumentSnapshot userDoc = await DatabaseMethods()
+          .getUserDetails(id!);
       if (userDoc.exists) {
         var data = userDoc.data() as Map<String, dynamic>?;
         if (data != null) {
@@ -74,9 +75,8 @@ class _DetailPageState extends State<DetailPage> {
 
   fetchLiveWallet() async {
     if (email != null) {
-      QuerySnapshot snapshot = await DatabaseMethods().getUserWalletbyemail(
-        email!,
-      );
+      firestore.QuerySnapshot snapshot = await DatabaseMethods()
+          .getUserWalletbyemail(email!);
       if (snapshot.docs.isNotEmpty) {
         var data = snapshot.docs.first.data() as Map<String, dynamic>;
         wallet = data["Wallet"]?.toString() ?? "0";
@@ -133,7 +133,8 @@ class _DetailPageState extends State<DetailPage> {
 
     // Fetch latest user details if needed
     if ((phone == null || phone!.isEmpty) && id != null) {
-      DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
+      firestore.DocumentSnapshot userDoc = await DatabaseMethods()
+          .getUserDetails(id!);
       if (userDoc.exists) {
         var data = userDoc.data() as Map<String, dynamic>?;
         phone = data?["Phone"]?.toString();
@@ -174,52 +175,225 @@ class _DetailPageState extends State<DetailPage> {
 
   // --- Order Placement Function ---
   Future<void> placeOrder({required String paymentMethod}) async {
-    if (id == null) return;
+    // Reload ID if missing
+    id ??= await SharedpreferenceHelper().getUserId();
+
+    if (id == null || id!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text("User ID missing. Please log in again."),
+        ),
+      );
+      return;
+    }
 
     String orderId = randomAlphaNumeric(10);
     Map<String, dynamic> userOrderMap = {
-      "Name": name,
+      "Name": name ?? "Guest",
       "Id": id,
       "Quantity": quantity.toString(),
       "Total": totalprice.toString(),
-      "Email": email,
+      "Email": email ?? "",
       "FoodName": widget.name,
       "FoodImage": widget.image,
       "OrderId": orderId,
       "Status": "Pending",
       "PaymentMethod": paymentMethod,
-      "Address": address,
+      "Address": address ?? "",
       "TimeStamp": DateTime.now().toIso8601String(),
     };
 
-    // Save transaction history
-    await DatabaseMethods().addUserTransaction({
-      "Amount": totalprice.toString(),
-      "Type": "Debit",
-      "Description": "Order Payment (${widget.name}) via $paymentMethod",
-      "TimeStamp": DateTime.now().toIso8601String(),
-    }, id!);
+    try {
+      // Save transaction history
+      await DatabaseMethods().addUserTransaction({
+        "Amount": totalprice.toString(),
+        "Type": "Debit",
+        "Description": "Order Payment (${widget.name}) via $paymentMethod",
+        "TimeStamp": DateTime.now().toIso8601String(),
+      }, id!);
 
-    // Save Order Details to User and Admin Nodes
-    await DatabaseMethods().addUserOrderDetails(userOrderMap, id!, orderId);
-    await DatabaseMethods().addAdminOrderDetails(userOrderMap, orderId);
+      // Save Order Details to User and Admin Nodes
+      await DatabaseMethods().addUserOrderDetails(userOrderMap, id!, orderId);
+      await DatabaseMethods().addAdminOrderDetails(userOrderMap, orderId);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.green,
-        content: Text(
-          "Order Placed Successfully using $paymentMethod!",
-          style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green,
+          content: Text(
+            "Order Placed Successfully using $paymentMethod!",
+            style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
+          ),
         ),
-      ),
-    );
+      );
 
-    // Redirect to Order Page
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const Order()),
+      // Redirect to Order Page
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const Order()),
+      );
+    } catch (e) {
+      debugPrint("Error placing order: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: primaryRed,
+          content: Text("Failed to place order: $e"),
+        ),
+      );
+    }
+  }
+
+  // --- Process Payment and Checkout Logic ---
+  Future<void> _processCheckout() async {
+    // Fetch latest wallet balance directly from Firestore
+    await fetchLiveWallet();
+
+    int currentWalletBalance = int.tryParse(wallet ?? '0') ?? 0;
+
+    // Check if the user has sufficient balance
+    if (currentWalletBalance >= totalprice) {
+      try {
+        // 1. Deduct amount from Firestore
+        await DatabaseMethods().deductUserWallet(totalprice, id!);
+
+        // 2. Save new remaining balance locally
+        int newBalance = currentWalletBalance - totalprice;
+        await SharedpreferenceHelper().saveUserWallet(newBalance.toString());
+
+        // 3. Complete order placement
+        await placeOrder(paymentMethod: "Wallet");
+      } catch (e) {
+        debugPrint("Wallet deduction failed: $e");
+      }
+    } else {
+      // Insufficient balance handling
+      showInsufficientBalanceDialog(totalprice, currentWalletBalance);
+    }
+  }
+
+  // --- Address Confirmation Dialog ---
+  void showAddressConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Confirm Address",
+                    style: TextStyle(
+                      color: primaryRed,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(context); // Close confirm dialog
+                      await openBox(); // Open edit address box
+                      showAddressConfirmationDialog(); // Re-open confirmation dialog
+                    },
+                    icon: Icon(Icons.edit, size: 16, color: primaryRed),
+                    label: Text(
+                      "Edit",
+                      style: TextStyle(
+                        color: primaryRed,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Please confirm your delivery address before placing order:",
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: lightBgColor,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.black12),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.location_on, color: primaryRed, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            (address != null && address!.trim().isNotEmpty)
+                                ? address!
+                                : "No address provided. Please tap Edit.",
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    "Cancel",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryRed,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () {
+                    if (address == null || address!.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "Please add a valid delivery address first.",
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(context);
+                    _processCheckout();
+                  },
+                  child: const Text(
+                    "Confirm & Proceed",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -501,38 +675,11 @@ class _DetailPageState extends State<DetailPage> {
                     ],
                   ),
                   GestureDetector(
-                    onTap: () async {
+                    onTap: () {
                       if (address == null || address!.trim().isEmpty) {
                         openBox();
-                        return;
-                      }
-
-                      // Fetch latest wallet balance directly from Firestore
-                      await fetchLiveWallet();
-
-                      int currentWalletBalance =
-                          int.tryParse(wallet ?? '0') ?? 0;
-
-                      if (currentWalletBalance >= totalprice) {
-                        // 1. Deduct amount from Firestore using dedicated method
-                        await DatabaseMethods().deductUserWallet(
-                          totalprice,
-                          id!,
-                        );
-
-                        // 2. Save new remaining balance locally
-                        int newBalance = currentWalletBalance - totalprice;
-                        await SharedpreferenceHelper().saveUserWallet(
-                          newBalance.toString(),
-                        );
-
-                        // 3. Complete order placement
-                        await placeOrder(paymentMethod: "Wallet");
                       } else {
-                        showInsufficientBalanceDialog(
-                          totalprice,
-                          currentWalletBalance,
-                        );
+                        showAddressConfirmationDialog();
                       }
                     },
                     child: Container(
