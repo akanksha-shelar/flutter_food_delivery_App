@@ -29,10 +29,10 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      # Create google-services.json from GitHub Secrets
+      # Create google-services.json from GitHub Secrets using sudo permissions
       - name: Create google-services.json
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > android/app/google-services.json
+          sudo bash -c 'echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > android/app/google-services.json'
 
       # Build Admin APK (Signed automatically with debug keystore)
       - name: Build Admin APK
@@ -46,7 +46,7 @@ jobs:
 
       # Distribute Admin APK to Firebase App Distribution
       - name: Distribute Admin APK
-        uses: w3cj/firebase-app-distribution-action@v1.4.0
+        uses: dpa2501/firebase-app-distribution-action@v1
         with:
           appId: ${{ secrets.FIREBASE_ADMIN_APP_ID }}
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -55,7 +55,7 @@ jobs:
 
       # Distribute Client APK to Firebase App Distribution
       - name: Distribute Client APK
-        uses: w3cj/firebase-app-distribution-action@v1.4.0
+        uses: dpa2501/firebase-app-distribution-action@v1
         with:
           appId: ${{ secrets.FIREBASE_CLIENT_APP_ID }}
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
