@@ -111,6 +111,7 @@ class _WalletState extends State<Wallet> {
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: primaryRed,
@@ -120,6 +121,7 @@ class _WalletState extends State<Wallet> {
   }
 
   void _handleExternalWallet(ExternalWalletResponse response) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: Colors.blue,
@@ -131,12 +133,14 @@ class _WalletState extends State<Wallet> {
   void openRazorpayCheckout(String amount) async {
     int enteredAmount = int.tryParse(amount) ?? 0;
     if (enteredAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: primaryRed,
-          content: const Text("Please enter a valid amount"),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: primaryRed,
+            content: const Text("Please enter a valid amount"),
+          ),
+        );
+      }
       return;
     }
 
@@ -171,7 +175,6 @@ class _WalletState extends State<Wallet> {
       'config_id': paymentconfigid,
       'prefill': {'contact': cleanPhone, 'email': email ?? ''},
       'readonly': {'contact': true, 'email': false},
-      // Force custom display sequence including Card and Wallet options
       'config': {
         'display': {
           'blocks': {
@@ -186,7 +189,6 @@ class _WalletState extends State<Wallet> {
             },
           },
           'sequence': ['block.custom_methods'],
-          //'preferences': {'show_default_blocks': true},
         },
       },
     };
@@ -217,7 +219,7 @@ class _WalletState extends State<Wallet> {
 
     amountcontroller.clear();
 
-    if (!context.mounted) return;
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: Colors.green,
@@ -228,7 +230,7 @@ class _WalletState extends State<Wallet> {
 
   Future openEdit() => showDialog(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (BuildContext dialogContext) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       content: SingleChildScrollView(
         child: Column(
@@ -246,7 +248,11 @@ class _WalletState extends State<Wallet> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => Navigator.pop(context),
+                  onTap: () {
+                    if (dialogContext.mounted) {
+                      Navigator.pop(dialogContext);
+                    }
+                  },
                   child: const Icon(Icons.cancel, color: Colors.grey),
                 ),
               ],
@@ -287,7 +293,9 @@ class _WalletState extends State<Wallet> {
                 ),
                 onPressed: () {
                   String enteredText = amountcontroller.text.trim();
-                  Navigator.pop(context);
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                  }
                   if (enteredText.isNotEmpty) {
                     openRazorpayCheckout(enteredText);
                   }
@@ -359,7 +367,9 @@ class _WalletState extends State<Wallet> {
                                 alignment: Alignment.centerLeft,
                                 child: GestureDetector(
                                   onTap: () {
-                                    Navigator.pop(context);
+                                    if (Navigator.canPop(context)) {
+                                      Navigator.pop(context);
+                                    }
                                   },
                                   child: Container(
                                     padding: const EdgeInsets.all(8),

@@ -23,6 +23,44 @@
           "other_platform_oauth_client": []
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:56319296363:android:3d872626b310b0e7a5422e",
+        "android_client_info": {
+          "package_name": "com.example.food_delivery_app.admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBt6fzgps7yV2D3W9OBT-OsjYAlIvV3tiY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:56319296363:android:040595b83018a547a5422e",
+        "android_client_info": {
+          "package_name": "com.example.food_delivery_app.client"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBt6fzgps7yV2D3W9OBT-OsjYAlIvV3tiY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

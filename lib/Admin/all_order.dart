@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:food_delivery_app/service/database.dart';
-// Note: Ensure your widget_support.dart package path matches your project setup
 import 'package:food_delivery_app/service/widget_support.dart';
 
 class AllOrders extends StatefulWidget {
@@ -11,6 +10,8 @@ class AllOrders extends StatefulWidget {
 }
 
 class _AllOrdersState extends State<AllOrders> {
+  Stream? orderStream;
+
   getontheload() async {
     orderStream = await DatabaseMethods().getAdminOrders();
     setState(() {});
@@ -22,8 +23,6 @@ class _AllOrdersState extends State<AllOrders> {
     getontheload();
   }
 
-  Stream? orderStream;
-
   Widget allOrders() {
     return StreamBuilder(
       stream: orderStream,
@@ -34,6 +33,12 @@ class _AllOrdersState extends State<AllOrders> {
                 itemCount: snapshot.data.docs.length,
                 itemBuilder: (context, index) {
                   var ds = snapshot.data.docs[index];
+                  Map<String, dynamic> data = ds.data() as Map<String, dynamic>;
+
+                  String status = data["Status"] ?? "Processing";
+                  bool isCancellationRequested =
+                      status == "Cancellation Requested";
+
                   return Container(
                     margin: const EdgeInsets.only(
                       left: 20.0,
@@ -42,159 +47,170 @@ class _AllOrdersState extends State<AllOrders> {
                     ),
                     child: Material(
                       elevation: 3.0,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(10),
-                        topRight: Radius.circular(10),
-                      ),
+                      borderRadius: BorderRadius.circular(10),
                       child: Container(
+                        padding: const EdgeInsets.all(12.0),
                         width: MediaQuery.of(context).size.width,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(10),
-                            topRight: Radius.circular(10),
-                          ),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Column(
                           children: [
-                            const SizedBox(height: 5.0),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 const Icon(
                                   Icons.location_on_outlined,
                                   color: Color(0xFFef2b39),
-                                ), // Icon
+                                ),
                                 const SizedBox(width: 10.0),
-                                Text(
-                                  ds('Address'),
-                                  style: AppWidget.SimpleTextFieldStyle(),
+                                Expanded(
+                                  child: Text(
+                                    data['Address'] ?? "No Address",
+                                    style: AppWidget.SimpleTextFieldStyle(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
-                            ), // Row
+                            ),
                             const Divider(),
                             Row(
                               children: [
                                 Image.asset(
-                                  ds('FoodImage'),
-                                  height: 120,
-                                  width: 120,
+                                  data['FoodImage'] ?? 'images/logo.png',
+                                  height: 100,
+                                  width: 100,
                                   fit: BoxFit.cover,
-                                ), // Image.asset
-                                const SizedBox(width: 20.0),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      ds("FoodName"),
-                                      style: AppWidget.boldTextFieldStyle(),
-                                    ),
-                                    const SizedBox(height: 5.0),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.format_list_numbered,
-                                          color: Color(0xFFef2b39),
-                                        ),
-                                        const SizedBox(width: 10.0),
-                                        Text(
-                                          ds("Quantity"),
-                                          style: AppWidget.boldTextFieldStyle(),
-                                        ),
-                                        const SizedBox(width: 30.0),
-                                        const Icon(
-                                          Icons.monetization_on,
-                                          color: Color(0xFFef2b39),
-                                        ),
-                                        const SizedBox(width: 10.0),
-                                        Text(
-                                          "\$" + ds["Total"],
-                                          style: AppWidget.boldTextFieldStyle(),
-                                        ),
-                                      ],
-                                    ), // Row
-                                    const SizedBox(height: 5.0),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.person,
-                                          color: Color(0xffef2b39),
-                                        ),
-                                        const SizedBox(width: 10.0),
-                                        Text(
-                                          ds["Name"],
-                                          style:
-                                              AppWidget.SimpleTextFieldStyle(),
-                                        ),
-                                      ],
-                                    ), // Row
-                                    const SizedBox(height: 5.0),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.mail,
-                                          color: Color(0xffef2b39),
-                                        ),
-                                        const SizedBox(width: 10.0),
-                                        Text(
-                                          ds["Email"],
-                                          style:
-                                              AppWidget.SimpleTextFieldStyle(),
-                                        ),
-                                      ],
-                                    ), // Row
-                                    const SizedBox(height: 5.0),
-                                    Text(
-                                      ds["Status"] + "!",
-                                      style: const TextStyle(
-                                        color: Color(0xffef2b39),
-                                        fontSize: 20.0,
-                                        fontWeight: FontWeight.bold,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(
+                                        Icons.fastfood,
+                                        size: 50,
+                                        color: Color(0xFFef2b39),
                                       ),
-                                    ), // Text
-                                    const SizedBox(height: 5.0),
-                                    GestureDetector(
-                                      onTap: () async {
-                                        await DatabaseMethods()
-                                            .updateAdminOrder(ds.id);
-                                        await DatabaseMethods().updateUserOrder(
-                                          ds["Id"],
-                                          ds.id,
-                                        );
-                                      },
-                                      child: Container(
-                                        width: 100,
-                                        height: 50,
-                                        decoration: BoxDecoration(
-                                          color: Colors.black,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ), // BoxDecoration
-                                        child: Center(
-                                          child: Text(
-                                            "Delivered",
-                                            style:
-                                                AppWidget.whiteTextFieldStyle(),
-                                          ),
+                                ),
+                                const SizedBox(width: 15.0),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        data["FoodName"] ?? "",
+                                        style: AppWidget.boldTextFieldStyle(),
+                                      ),
+                                      const SizedBox(height: 5.0),
+                                      Text(
+                                        "Qty: ${data["Quantity"]} | Total: \$${data["Total"]}",
+                                      ),
+                                      Text("User: ${data["Name"] ?? "User"}"),
+                                      const SizedBox(height: 5.0),
+                                      // Real-time Status Banner
+                                      Text(
+                                        "$status!",
+                                        style: TextStyle(
+                                          color: isCancellationRequested
+                                              ? Colors.orange.shade800
+                                              : const Color(0xffef2b39),
+                                          fontSize: 16.0,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                    ), // Container
-                                    const SizedBox(height: 10.0),
-                                  ],
-                                ), // Column
+                                      const SizedBox(height: 10.0),
+
+                                      // Admin Options for Cancellation Handling
+                                      if (isCancellationRequested) ...[
+                                        Row(
+                                          children: [
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.green,
+                                              ),
+                                              onPressed: () async {
+                                                await DatabaseMethods()
+                                                    .handleCancellationRequest(
+                                                      orderDocId: ds.id,
+                                                      userId: data["Id"],
+                                                      approve: true,
+                                                    );
+                                              },
+                                              child: const Text(
+                                                "Approve",
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8.0),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.red,
+                                              ),
+                                              onPressed: () async {
+                                                await DatabaseMethods()
+                                                    .handleCancellationRequest(
+                                                      orderDocId: ds.id,
+                                                      userId: data["Id"],
+                                                      approve: false,
+                                                    );
+                                              },
+                                              child: const Text(
+                                                "Reject",
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ] else if (status != "Cancelled" &&
+                                          status != "Delivered") ...[
+                                        GestureDetector(
+                                          onTap: () async {
+                                            await DatabaseMethods()
+                                                .updateAdminOrder(ds.id);
+                                            await DatabaseMethods()
+                                                .updateUserOrder(
+                                                  data["Id"],
+                                                  ds.id,
+                                                );
+                                          },
+                                          child: Container(
+                                            width: 100,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: Colors.black,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                "Delivered",
+                                                style:
+                                                    AppWidget.whiteTextFieldStyle(),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
                               ],
-                            ), // Row
+                            ),
                           ],
-                        ), // Column
-                      ), // Container
-                    ), // Material
-                  ); // Container
+                        ),
+                      ),
+                    ),
+                  );
                 },
               )
-            : Container(); // fallback if no data
+            : Container();
       },
-    ); // StreamBuilder
+    );
   }
 
   @override
@@ -206,33 +222,27 @@ class _AllOrdersState extends State<AllOrders> {
           children: [
             Padding(
               padding: const EdgeInsets.only(left: 20.0),
-              key: const Key('header_padding'),
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () {
-                      Navigator.pop(context);
-                    },
+                    onTap: () => Navigator.pop(context),
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: const Color(0xffef2b39),
                         borderRadius: BorderRadius.circular(30),
-                      ), // BoxDecoration
+                      ),
                       child: const Icon(
                         Icons.arrow_back_ios_new_rounded,
                         color: Colors.white,
-                      ), // Icon
-                    ), // Container
-                  ), // GestureDetector
+                      ),
+                    ),
+                  ),
                   SizedBox(width: MediaQuery.of(context).size.width / 6),
-                  Text(
-                    "All Orders",
-                    style: AppWidget.HeadlineTextFieldStyle(),
-                  ), // Text
+                  Text("All Orders", style: AppWidget.HeadlineTextFieldStyle()),
                 ],
-              ), // Row
-            ), // Padding
+              ),
+            ),
             const SizedBox(height: 20.0),
             Expanded(
               child: Container(
@@ -242,22 +252,14 @@ class _AllOrdersState extends State<AllOrders> {
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(30),
                     topRight: Radius.circular(30),
-                  ), // BorderRadius.only
-                ), // BoxDecoration
-                child: Column(
-                  children: [
-                    const SizedBox(height: 20.0),
-                    Container(
-                      height: MediaQuery.of(context).size.height / 1.5,
-                      child: allOrders(),
-                    ), // SizedBox
-                  ],
-                ), // Column
-              ), // Container
-            ), // Expanded
+                  ),
+                ),
+                child: allOrders(),
+              ),
+            ),
           ],
         ),
-      ), // Container
-    ); // Scaffold
+      ),
+    );
   }
 }

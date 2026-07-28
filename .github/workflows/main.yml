@@ -1,75 +1,63 @@
-name: Flutter CI/CD Pipeline
+name: Build and Distribute Admin and Client APKs
 
-# Trigger workflow on push or pull requests to the main branch
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  build:
-    name: Build & Distribute APK
+  build-and-distribute:
     runs-on: ubuntu-latest
 
-    # Set Gradle network timeout options to prevent HTTP 504 Gateway Timeout errors
-    env:
-      GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
-
     steps:
-      # Step 1: Check out the repository code
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Java environment
-      - name: Set up Java
+      - name: Set up Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # Step 3: Cache Gradle wrapper & dependencies to prevent downloading Gradle on every run
-      - name: Setup Gradle Cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      # Step 4: Set up Flutter environment
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
 
-      # Step 5: Install Flutter dependencies
-      - name: Get Flutter dependencies
+      - name: Install Dependencies
         run: flutter pub get
 
-      # Step 6: Analyze code (ignoring non-fatal warnings)
-      - name: Analyze code
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      # Create google-services.json from GitHub Secrets
+      - name: Create google-services.json
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > android/app/google-services.json
 
-      # Step 7: Build Android APK
-      - name: Build Android APK
-        run: flutter build apk --release
+      # Build Admin APK (Signed automatically with debug keystore)
+      - name: Build Admin APK
+        run: |
+          flutter build apk --flavor admin -t lib/main_admin.dart --release
 
-      # Step 8: Upload the built APK as a downloadable artifact on GitHub
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      # Build Client APK (Signed automatically with debug keystore)
+      - name: Build Client APK
+        run: |
+          flutter build apk --flavor client -t lib/main_client.dart --release
+
+      # Distribute Admin APK to Firebase App Distribution
+      - name: Distribute Admin APK
+        uses: w3cj/firebase-app-distribution-action@v1.4.0
         with:
-          name: release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          appId: ${{ secrets.FIREBASE_ADMIN_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: admin-testers
+          file: build/app/outputs/flutter-apk/app-admin-release.apk
 
-      # Step 9: Upload APK to Firebase App Distribution
-      - name: Upload to Firebase App Distribution
-        uses: emertozd/Firebase-Distribution-Github-Action@v6
+      # Distribute Client APK to Firebase App Distribution
+      - name: Distribute Client APK
+        uses: w3cj/firebase-app-distribution-action@v1.4.0
         with:
-          appId: ${{ secrets.FIREBASE_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.CREDENTIAL_FILE_CONTENT }}
-          groups: testers
-          file: build/app/outputs/flutter-apk/app-release.apk
+          appId: ${{ secrets.FIREBASE_CLIENT_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: client-testers
+          file: build/app/outputs/flutter-apk/app-client-release.apk

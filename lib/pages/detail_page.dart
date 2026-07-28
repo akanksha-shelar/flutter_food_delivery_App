@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
-import 'package:firebase_auth/firebase_auth.dart'; // Added Firebase Auth import
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:food_delivery_app/pages/order.dart';
 import 'package:food_delivery_app/pages/wallet.dart';
@@ -77,7 +77,7 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
 
-    if (email != null && email!.isNotEmpty) {
+    if (id != null) {
       await fetchLiveWallet();
     }
     if (mounted) {
@@ -85,15 +85,14 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  fetchLiveWallet() async {
-    if (email != null) {
+  Future<void> fetchLiveWallet() async {
+    if (id != null) {
       try {
-        QuerySnapshot snapshot = await DatabaseMethods().getUserWalletbyemail(
-          email!,
-        );
-        if (snapshot.docs.isNotEmpty) {
-          var data = snapshot.docs.first.data() as Map<String, dynamic>;
+        DocumentSnapshot snapshot = await DatabaseMethods().getUserDetails(id!);
+        if (snapshot.exists) {
+          var data = snapshot.data() as Map<String, dynamic>;
           wallet = data["Wallet"]?.toString() ?? "0";
+          await SharedpreferenceHelper().saveUserWallet(wallet!);
         }
       } catch (e) {
         debugPrint("Error fetching wallet balance: $e");
@@ -242,7 +241,7 @@ class _DetailPageState extends State<DetailPage> {
     };
 
     try {
-      // 1. Save Transaction to User Collection
+      // 1. Save Transaction Record
       await DatabaseMethods().addUserTransaction({
         "Amount": totalprice.toString(),
         "Type": "Debit",
@@ -268,11 +267,13 @@ class _DetailPageState extends State<DetailPage> {
         ),
       );
 
-      // Redirect to Order Page
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const Order()),
-      );
+      // Safe Navigator Redirect
+      if (context.mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const Order()),
+        );
+      }
     } catch (e) {
       debugPrint("Error placing order in Firebase: $e");
       if (!mounted) return;
@@ -280,50 +281,83 @@ class _DetailPageState extends State<DetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: primaryRed,
-          content: Text("Permission Denied or Database Error: $e"),
+          content: Text("Database Error: $e"),
         ),
       );
     }
   }
 
-  // --- Process Payment and Checkout Logic ---
+  // --- Process Payment and Atomic Wallet Checkout ---
   Future<void> _processCheckout() async {
+    if (isLoading) return;
     setState(() => isLoading = true);
 
-    await fetchLiveWallet();
+    if (id == null || id!.isEmpty) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("User session invalid. Please re-login.")),
+      );
+      return;
+    }
 
-    int currentWalletBalance = int.tryParse(wallet ?? '0') ?? 0;
+    DocumentReference userRef = FirebaseFirestore.instance
+        .collection("users")
+        .doc(id);
 
-    if (currentWalletBalance >= totalprice) {
-      try {
-        int newBalance = currentWalletBalance - totalprice;
+    try {
+      // Perform atomic balance check & deduction via Firestore Transaction
+      bool transactionSuccess = await FirebaseFirestore.instance.runTransaction(
+        (transaction) async {
+          DocumentSnapshot snapshot = await transaction.get(userRef);
 
-        // Deduct balance in Firebase
-        await DatabaseMethods().updateUserWallet(newBalance.toString(), id!);
-        await SharedpreferenceHelper().saveUserWallet(newBalance.toString());
+          if (!snapshot.exists) {
+            throw Exception("User profile does not exist.");
+          }
 
-        // Save order in Firebase
+          var data = snapshot.data() as Map<String, dynamic>;
+          int currentBalance =
+              int.tryParse(data["Wallet"]?.toString() ?? "0") ?? 0;
+
+          if (currentBalance < totalprice) {
+            return false; // Insufficient funds flag
+          }
+
+          int updatedBalance = currentBalance - totalprice;
+          transaction.update(userRef, {"Wallet": updatedBalance.toString()});
+          wallet = updatedBalance.toString();
+          return true;
+        },
+      );
+
+      if (transactionSuccess) {
+        await SharedpreferenceHelper().saveUserWallet(wallet!);
         await placeOrder(paymentMethod: "Wallet");
-      } catch (e) {
+      } else {
         if (mounted) setState(() => isLoading = false);
-        debugPrint("Wallet deduction failed: $e");
+        await fetchLiveWallet();
+        int liveBal = int.tryParse(wallet ?? "0") ?? 0;
+        if (mounted) {
+          showInsufficientBalanceDialog(totalprice, liveBal);
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => isLoading = false);
+      debugPrint("Transaction failed: $e");
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: primaryRed,
-            content: Text("Wallet transaction failed: $e"),
+            content: Text("Checkout error: $e"),
           ),
         );
       }
-    } else {
-      if (mounted) setState(() => isLoading = false);
-      showInsufficientBalanceDialog(totalprice, currentWalletBalance);
     }
   }
 
   void showAddressConfirmationDialog() {
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
@@ -341,7 +375,7 @@ class _DetailPageState extends State<DetailPage> {
               ),
               TextButton.icon(
                 onPressed: () async {
-                  Navigator.pop(context);
+                  Navigator.pop(dialogContext);
                   await openBox();
                   if (mounted) {
                     showAddressConfirmationDialog();
@@ -398,7 +432,9 @@ class _DetailPageState extends State<DetailPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
               child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
@@ -419,7 +455,7 @@ class _DetailPageState extends State<DetailPage> {
                   );
                   return;
                 }
-                Navigator.pop(context);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
                 _processCheckout();
               },
               child: const Text(
@@ -439,13 +475,13 @@ class _DetailPageState extends State<DetailPage> {
   void showInsufficientBalanceDialog(int requiredAmount, int currentBalance) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),
           title: const Text(
-            "Insufficient Balance",
+            "Insufficient Wallet Balance",
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           content: Column(
@@ -453,27 +489,32 @@ class _DetailPageState extends State<DetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Your current wallet balance is ₹$currentBalance, but order total is ₹$requiredAmount.",
+                "Your wallet has ₹$currentBalance, but order total is ₹$requiredAmount.",
                 style: const TextStyle(fontSize: 14, color: Colors.black87),
               ),
               const SizedBox(height: 15),
               const Text(
-                "How would you like to proceed?",
-                style: TextStyle(fontWeight: FontWeight.w600),
+                "Please add money to your wallet or choose direct card/UPI checkout.",
+                style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const Wallet()),
-                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const Wallet()),
+                  ).then((_) async {
+                    await fetchLiveWallet();
+                    if (mounted) setState(() {});
+                  });
+                }
               },
               child: Text(
-                "Add to Wallet",
+                "Add Money",
                 style: TextStyle(
                   color: primaryRed,
                   fontWeight: FontWeight.bold,
@@ -488,12 +529,14 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
               onPressed: () {
-                Navigator.pop(context);
-                setState(() => isLoading = true);
-                openRazorpayCheckout(requiredAmount.toString());
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  setState(() => isLoading = true);
+                  openRazorpayCheckout(requiredAmount.toString());
+                }
               },
               child: const Text(
-                "Pay with card/UPI",
+                "Pay Direct via UPI/Card",
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -508,7 +551,7 @@ class _DetailPageState extends State<DetailPage> {
 
   Future openBox() => showDialog(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (dialogContext) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       content: SingleChildScrollView(
         child: Column(
@@ -526,7 +569,9 @@ class _DetailPageState extends State<DetailPage> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => Navigator.pop(context),
+                  onTap: () {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  },
                   child: const Icon(Icons.cancel, color: Colors.grey),
                 ),
               ],
@@ -574,7 +619,7 @@ class _DetailPageState extends State<DetailPage> {
                       });
                     }
                     if (mounted) setState(() {});
-                    if (context.mounted) Navigator.pop(context);
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
                   }
                 },
                 child: const Text(
@@ -603,7 +648,9 @@ class _DetailPageState extends State<DetailPage> {
           children: [
             GestureDetector(
               onTap: () {
-                Navigator.pop(context);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               },
               child: Container(
                 padding: const EdgeInsets.all(8),

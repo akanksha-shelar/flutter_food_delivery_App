@@ -17,10 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.food_delivery_app"
-        
-        // Explicitly set to 21 for Razorpay compatibility
         minSdk = flutter.minSdkVersion
-        
         targetSdk = 34 
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -28,17 +25,31 @@ android {
 
     buildTypes {
         release {
-            // Enable ProGuard / R8 code shrinking and resource optimization
             isMinifyEnabled = true
             isShrinkResources = true
 
-            // Link your custom proguard-rules.pro file
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
 
+            // Force Gradle to sign the release APK using the default debug keystore
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    flavorDimensions += "default"
+
+    productFlavors {
+        create("admin") {
+            dimension = "default"
+            applicationIdSuffix = ".admin"
+            resValue("string", "app_name", "Food App Admin")
+        }
+        create("client") {
+            dimension = "default"
+            applicationIdSuffix = ".client"
+            resValue("string", "app_name", "Food App")
         }
     }
 }

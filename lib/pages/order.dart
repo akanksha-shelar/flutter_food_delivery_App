@@ -4,7 +4,7 @@ import 'package:food_delivery_app/service/shared_pref.dart';
 import 'package:food_delivery_app/service/widget_support.dart';
 
 class Order extends StatefulWidget {
-  final String? orderId; // Optional: Pass a specific Order ID
+  final String? orderId;
 
   const Order({super.key, this.orderId});
 
@@ -16,7 +16,6 @@ class _OrderState extends State<Order> {
   String? id;
   Stream? orderStream;
 
-  // Matching UI Theme Colors
   final Color primaryRed = const Color(0xFFFA3E4C);
   final Color lightBgColor = const Color(0xFFEFEFF7);
 
@@ -40,6 +39,79 @@ class _OrderState extends State<Order> {
     getOnLoad();
   }
 
+  // Confirmation dialog before sending cancellation request
+  void showCancelConfirmationDialog(
+    String orderDocId,
+    Map<String, dynamic> orderData,
+  ) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text("Cancel Order"),
+          content: const Text(
+            "Are you sure you want to request cancellation for this order?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+              },
+              child: const Text("No", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: primaryRed),
+              onPressed: () async {
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+                await submitCancellationRequest(orderDocId, orderData);
+              },
+              child: const Text(
+                "Yes, Cancel",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> submitCancellationRequest(
+    String orderDocId,
+    Map<String, dynamic> orderData,
+  ) async {
+    if (id == null) return;
+
+    Map<String, dynamic> cancelData = {
+      "orderId": orderDocId,
+      "userId": id,
+      "foodName": orderData["FoodName"] ?? "Food Item",
+      "total": orderData["Total"]?.toString() ?? "0",
+      "userEmail": orderData["Email"] ?? "",
+      "requestStatus": "Pending",
+      "requestedAt": DateTime.now().toIso8601String(),
+    };
+
+    await DatabaseMethods().requestOrderCancellation(
+      id!,
+      orderDocId,
+      cancelData,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Cancellation request submitted successfully!"),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
   Widget allOrders() {
     return StreamBuilder(
       stream: orderStream,
@@ -61,7 +133,6 @@ class _OrderState extends State<Order> {
           );
         }
 
-        // Filter for specific order if widget.orderId was passed
         List docs = snapshot.data.docs;
         if (widget.orderId != null && widget.orderId!.isNotEmpty) {
           docs = docs.where((doc) {
@@ -89,12 +160,23 @@ class _OrderState extends State<Order> {
           itemCount: docs.length,
           itemBuilder: (context, index) {
             var ds = docs[index];
-            String foodImage = ds["FoodImage"] ?? "";
-            String foodName = ds["FoodName"] ?? "Food Item";
-            String address = ds["Address"] ?? "No Address Provided";
-            String quantity = ds["Quantity"]?.toString() ?? "1";
-            String total = ds["Total"]?.toString() ?? "0";
-            String status = ds["Status"] ?? "Processing";
+            Map<String, dynamic> data = ds.data() as Map<String, dynamic>;
+
+            String foodImage = data["FoodImage"] ?? "";
+            String foodName = data["FoodName"] ?? "Food Item";
+            String address = data["Address"] ?? "No Address Provided";
+            String quantity = data["Quantity"]?.toString() ?? "1";
+            String total = data["Total"]?.toString() ?? "0";
+            String status = data["Status"] ?? "Processing";
+
+            // Status checks for actionable states
+            bool isCancellationRequested = status == "Cancellation Requested";
+            bool isCancelled = status == "Cancelled";
+            bool isDelivered = status == "Delivered";
+
+            // Order is eligible for cancellation if it is not already cancelled, requested, or delivered
+            bool isEligibleForCancel =
+                !isCancellationRequested && !isCancelled && !isDelivered;
 
             return Container(
               margin: const EdgeInsets.only(
@@ -199,14 +281,59 @@ class _OrderState extends State<Order> {
                                   ],
                                 ),
                                 const SizedBox(height: 8.0),
+                                // Real-Time Dynamic Status
                                 Text(
-                                  "$status!",
+                                  status,
                                   style: TextStyle(
-                                    color: primaryRed,
+                                    color:
+                                        isCancelled || isCancellationRequested
+                                        ? Colors.orange.shade800
+                                        : primaryRed,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 14,
                                   ),
                                 ),
+                                const SizedBox(height: 8.0),
+                                // Cancel Order Button UI & Actions
+                                if (isEligibleForCancel)
+                                  OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      side: BorderSide(color: primaryRed),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    onPressed: () =>
+                                        showCancelConfirmationDialog(
+                                          ds.id,
+                                          data,
+                                        ),
+                                    child: Text(
+                                      "Cancel Order",
+                                      style: TextStyle(
+                                        color: primaryRed,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  )
+                                else if (isCancellationRequested)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.shade50,
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: const Text(
+                                      "Cancellation Pending Admin Approval",
+                                      style: TextStyle(
+                                        color: Colors.orange,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -231,7 +358,6 @@ class _OrderState extends State<Order> {
         margin: const EdgeInsets.only(top: 50.0),
         child: Column(
           children: [
-            // Top Header Bar with Back Button & Dynamic Title
             Material(
               elevation: 2.0,
               child: Container(
@@ -247,7 +373,9 @@ class _OrderState extends State<Order> {
                       alignment: Alignment.centerLeft,
                       child: GestureDetector(
                         onTap: () {
-                          Navigator.pop(context);
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          }
                         },
                         child: Container(
                           padding: const EdgeInsets.all(8),

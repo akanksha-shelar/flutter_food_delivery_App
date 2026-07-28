@@ -197,4 +197,65 @@ class DatabaseMethods {
         .collection("Orders")
         .snapshots();
   }
+
+  // --- CANCELLATION MANAGEMENT ---
+
+  // Request order cancellation (User side)
+  Future<void> requestOrderCancellation(
+    String userId,
+    String orderDocId,
+    Map<String, dynamic> cancelData,
+  ) async {
+    // 1. Update status in User's Order document
+    await FirebaseFirestore.instance
+        .collection("users")
+        .doc(userId)
+        .collection("Orders")
+        .doc(orderDocId)
+        .update({"Status": "Cancellation Requested"});
+
+    // 2. Update status in Admin Orders collection
+    await FirebaseFirestore.instance
+        .collection("Orders")
+        .doc(orderDocId)
+        .update({"Status": "Cancellation Requested"});
+
+    // 3. Create entry in a dedicated Cancellation Requests collection
+    await FirebaseFirestore.instance
+        .collection("CancellationRequests")
+        .doc(orderDocId)
+        .set(cancelData);
+  }
+
+  // Admin action: Approve or Reject Cancellation
+  Future<void> handleCancellationRequest({
+    required String orderDocId,
+    required String userId,
+    required bool approve,
+  }) async {
+    String newStatus = approve ? "Cancelled" : "On the way";
+
+    // Update User Order document
+    await FirebaseFirestore.instance
+        .collection("users")
+        .doc(userId)
+        .collection("Orders")
+        .doc(orderDocId)
+        .update({"Status": newStatus});
+
+    // Update Admin Order document
+    await FirebaseFirestore.instance
+        .collection("Orders")
+        .doc(orderDocId)
+        .update({"Status": newStatus});
+
+    // Update CancellationRequests document
+    await FirebaseFirestore.instance
+        .collection("CancellationRequests")
+        .doc(orderDocId)
+        .update({
+          "requestStatus": approve ? "Approved" : "Rejected",
+          "processedAt": FieldValue.serverTimestamp(),
+        });
+  }
 }
