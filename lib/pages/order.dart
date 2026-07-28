@@ -14,6 +14,10 @@ class _OrderState extends State<Order> {
   String? id;
   Stream? orderStream;
 
+  // Matching UI Theme Colors
+  final Color primaryRed = const Color(0xFFFA3E4C);
+  final Color lightBgColor = const Color(0xFFEFEFF7);
+
   Future<void> getSharedPref() async {
     id = await SharedpreferenceHelper().getUserId();
   }
@@ -39,9 +43,7 @@ class _OrderState extends State<Order> {
       stream: orderStream,
       builder: (context, AsyncSnapshot snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Color(0xFFef2b39)),
-          );
+          return Center(child: CircularProgressIndicator(color: primaryRed));
         }
 
         if (!snapshot.hasData || snapshot.data.docs.isEmpty) {
@@ -58,7 +60,7 @@ class _OrderState extends State<Order> {
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.only(top: 10.0, bottom: 20.0),
+          padding: const EdgeInsets.only(top: 15.0, bottom: 20.0),
           itemCount: snapshot.data.docs.length,
           itemBuilder: (context, index) {
             var ds = snapshot.data.docs[index];
@@ -73,10 +75,10 @@ class _OrderState extends State<Order> {
               margin: const EdgeInsets.only(
                 left: 20.0,
                 right: 20.0,
-                bottom: 20.0,
+                bottom: 15.0,
               ),
               child: Material(
-                elevation: 3.0,
+                elevation: 2.0,
                 borderRadius: BorderRadius.circular(15),
                 child: Container(
                   width: MediaQuery.of(context).size.width,
@@ -90,10 +92,7 @@ class _OrderState extends State<Order> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
-                            Icons.location_on_outlined,
-                            color: Color(0xFFef2b39),
-                          ),
+                          Icon(Icons.location_on_outlined, color: primaryRed),
                           const SizedBox(width: 8.0),
                           Expanded(
                             child: Text(
@@ -114,31 +113,29 @@ class _OrderState extends State<Order> {
                             child: foodImage.startsWith("http")
                                 ? Image.network(
                                     foodImage,
-                                    height: 100,
-                                    width: 100,
+                                    height: 90,
+                                    width: 90,
                                     fit: BoxFit.cover,
                                     errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            const Icon(
-                                              Icons.fastfood,
-                                              size: 50,
-                                              color: Color(0xFFef2b39),
-                                            ),
+                                        (context, error, stackTrace) => Icon(
+                                          Icons.fastfood,
+                                          size: 50,
+                                          color: primaryRed,
+                                        ),
                                   )
                                 : Image.asset(
                                     foodImage.isNotEmpty
                                         ? foodImage
                                         : "images/logo.png",
-                                    height: 100,
-                                    width: 100,
+                                    height: 90,
+                                    width: 90,
                                     fit: BoxFit.cover,
                                     errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            const Icon(
-                                              Icons.fastfood,
-                                              size: 50,
-                                              color: Color(0xFFef2b39),
-                                            ),
+                                        (context, error, stackTrace) => Icon(
+                                          Icons.fastfood,
+                                          size: 50,
+                                          color: primaryRed,
+                                        ),
                                   ),
                           ),
                           const SizedBox(width: 15.0),
@@ -155,36 +152,34 @@ class _OrderState extends State<Order> {
                                 const SizedBox(height: 8.0),
                                 Row(
                                   children: [
-                                    const Icon(
+                                    Icon(
                                       Icons.format_list_numbered,
-                                      color: Color(0xFFef2b39),
-                                      size: 20,
+                                      color: primaryRed,
+                                      size: 18,
                                     ),
-                                    const SizedBox(width: 5.0),
+                                    const SizedBox(width: 4.0),
                                     Text(
                                       quantity,
                                       style: AppWidget.boldTextFieldStyle(),
                                     ),
-                                    const SizedBox(width: 20.0),
-                                    const Icon(
-                                      Icons.monetization_on,
-                                      color: Color(0xFFef2b39),
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 5.0),
+                                    const SizedBox(width: 16.0),
                                     Text(
-                                      "\$$total",
-                                      style: AppWidget.boldTextFieldStyle(),
+                                      "₹$total",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: primaryRed,
+                                      ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 8.0),
                                 Text(
                                   "$status!",
-                                  style: const TextStyle(
-                                    color: Color(0xFFef2b39),
+                                  style: TextStyle(
+                                    color: primaryRed,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 15,
+                                    fontSize: 14,
                                   ),
                                 ),
                               ],
@@ -208,22 +203,58 @@ class _OrderState extends State<Order> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: Container(
-        margin: const EdgeInsets.only(top: 40.0),
+        margin: const EdgeInsets.only(top: 50.0),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text("Orders", style: AppWidget.HeadlineTextFieldStyle()),
-              ],
+            // Top Header Bar with Back Button & Title
+            Material(
+              elevation: 2.0,
+              child: Container(
+                padding: const EdgeInsets.only(
+                  bottom: 10.0,
+                  left: 10.0,
+                  right: 10.0,
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: lightBgColor,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new_outlined,
+                            color: Colors.black,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Center(
+                      child: Text(
+                        "Orders",
+                        style: AppWidget.HeadlineTextFieldStyle(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 10.0),
             Expanded(
               child: Container(
                 width: MediaQuery.of(context).size.width,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFececf8),
-                  borderRadius: BorderRadius.only(
+                decoration: BoxDecoration(
+                  color: lightBgColor,
+                  borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(30),
                     topRight: Radius.circular(30),
                   ),

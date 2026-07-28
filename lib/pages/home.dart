@@ -7,10 +7,10 @@ import 'package:food_delivery_app/model/pizza_model.dart';
 import 'package:food_delivery_app/pages/detail_page.dart';
 import 'package:food_delivery_app/service/burger_data.dart';
 import 'package:food_delivery_app/service/category_data.dart';
+import 'package:food_delivery_app/service/database.dart';
 import 'package:food_delivery_app/service/pizza_data.dart';
 import 'package:food_delivery_app/service/shared_pref.dart';
 import 'package:food_delivery_app/service/widget_support.dart';
-import 'package:food_delivery_app/service/database.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -97,9 +97,9 @@ class _HomeState extends State<Home> {
     }
   }
 
-  // Optimized Search Logic
+  // Search logic supporting both Local Mock Lists (pizza/burger) and Firestore
   void initiateSearch(String value) {
-    String cleanQuery = value.trim();
+    String cleanQuery = value.trim().toLowerCase();
 
     if (cleanQuery.isEmpty) {
       setState(() {
@@ -114,32 +114,74 @@ class _HomeState extends State<Home> {
       search = true;
     });
 
-    String capitalizedValue =
-        cleanQuery.substring(0, 1).toUpperCase() + cleanQuery.substring(1);
+    if (queryResultSet.isEmpty) {
+      List items = [];
 
-    if (queryResultSet.isEmpty && cleanQuery.length == 1) {
-      DatabaseMethods().search(cleanQuery).then((QuerySnapshot docs) {
-        queryResultSet = [];
-        for (int i = 0; i < docs.docs.length; ++i) {
-          queryResultSet.add(docs.docs[i].data());
+      // 1. Load Local Pizza Data
+      for (var item in pizza) {
+        if (item.name != null) {
+          items.add({
+            'Name': item.name,
+            'Image': item.image,
+            'Price': item.price,
+            'Category': 'Pizza',
+            'Detail': '',
+          });
         }
-        _filterSearchResults(capitalizedValue);
-      });
+      }
+
+      // 2. Load Local Burger Data
+      for (var item in burger) {
+        if (item.name != null) {
+          items.add({
+            'Name': item.name,
+            'Image': item.image,
+            'Price': item.price,
+            'Category': 'Burger',
+            'Detail': '',
+          });
+        }
+      }
+
+      // 3. Load Firestore Data (if available)
+      DatabaseMethods()
+          .getAllFoodItems()
+          .then((QuerySnapshot docs) {
+            for (int i = 0; i < docs.docs.length; ++i) {
+              var data = docs.docs[i].data() as Map<String, dynamic>;
+              items.add(data);
+            }
+            setState(() {
+              queryResultSet = items;
+            });
+            _filterSearchResults(cleanQuery);
+          })
+          .catchError((e) {
+            // Fallback if Firestore isn't reachable
+            setState(() {
+              queryResultSet = items;
+            });
+            _filterSearchResults(cleanQuery);
+          });
     } else {
-      _filterSearchResults(capitalizedValue);
+      _filterSearchResults(cleanQuery);
     }
   }
 
   void _filterSearchResults(String query) {
     List newTempStore = [];
     for (var element in queryResultSet) {
-      if (element['Name'] != null &&
-          element['Name'].toString().toLowerCase().contains(
-            query.toLowerCase(),
-          )) {
+      String name = (element['Name'] ?? "").toString().toLowerCase();
+      String category = (element['Category'] ?? "").toString().toLowerCase();
+      String detail = (element['Detail'] ?? "").toString().toLowerCase();
+
+      if (name.contains(query) ||
+          category.contains(query) ||
+          detail.contains(query)) {
         newTempStore.add(element);
       }
     }
+
     setState(() {
       tempSearchStore = newTempStore;
     });
@@ -213,10 +255,10 @@ class _HomeState extends State<Home> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        margin: const EdgeInsets.only(left: 20.0, top: 40.0),
+        margin: const EdgeInsets.only(left: 10.0, top: 40.0),
         child: Column(
           children: [
-            // Header Row with Logo, Welcome Text, Profile Icon & Name
+            // Header Row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -310,7 +352,7 @@ class _HomeState extends State<Home> {
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.only(right: 10.0),
+                  margin: const EdgeInsets.only(right: 20.0),
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: const Color(0xffef2b39),
@@ -324,7 +366,7 @@ class _HomeState extends State<Home> {
                 ),
               ],
             ),
-            const SizedBox(height: 20.0),
+            const SizedBox(height: 40.0),
 
             // Categories List
             SizedBox(
@@ -342,7 +384,7 @@ class _HomeState extends State<Home> {
                 },
               ),
             ),
-            const SizedBox(height: 10.0),
+            const SizedBox(height: 20.0),
 
             // Dynamic Grid Items or Search View
             Expanded(
@@ -456,7 +498,7 @@ class _HomeState extends State<Home> {
                   ),
           ),
           Text(name, style: AppWidget.boldTextFieldStyle()),
-          Text("\$$price", style: AppWidget.priceTextFieldStyle()),
+          Text("₹$price", style: AppWidget.priceTextFieldStyle()),
           const Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

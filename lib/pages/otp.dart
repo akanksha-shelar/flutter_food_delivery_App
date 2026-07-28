@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:food_delivery_app/service/shared_pref.dart';
 import 'package:pinput/pinput.dart';
 import 'bottomnav.dart';
 import 'nameaddress.dart';
@@ -88,6 +89,10 @@ class _OtpPageState extends State<OtpPage> {
       User? user = userCredential.user;
 
       if (user != null && mounted) {
+        // 1. Always save essential local identifiers
+        await SharedpreferenceHelper().saveUserId(user.uid);
+        await SharedpreferenceHelper().saveUserPhone(widget.phoneNumber);
+
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -101,12 +106,39 @@ class _OtpPageState extends State<OtpPage> {
         );
 
         if (userDoc.exists) {
+          // 2. Existing User: Populate SharedPreferences safely using .toString()
+          var data = userDoc.data() as Map<String, dynamic>?;
+          if (data != null) {
+            if (data["Name"] != null) {
+              await SharedpreferenceHelper().saveUserName(
+                data["Name"].toString(),
+              );
+            }
+            if (data["Email"] != null) {
+              await SharedpreferenceHelper().saveUserEmail(
+                data["Email"].toString(),
+              );
+            }
+            if (data["Wallet"] != null) {
+              await SharedpreferenceHelper().saveUserWallet(
+                data["Wallet"].toString(),
+              );
+            }
+            if (data["Phone"] != null) {
+              await SharedpreferenceHelper().saveUserPhone(
+                data["Phone"].toString(),
+              );
+            }
+          }
+
+          if (!mounted) return;
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const BottomNav()),
             (route) => false,
           );
         } else {
+          // 3. New User: Pass to details onboarding page
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(

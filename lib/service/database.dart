@@ -3,14 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class DatabaseMethods {
   // --- SEARCH MANAGEMENT ---
 
-  // Search food items in Firestore by starting character sequence/prefix
+  // Fetch all food items from Firestore for client-side substring matching
+  Future<QuerySnapshot> getAllFoodItems() async {
+    return await FirebaseFirestore.instance.collection("Items").get();
+  }
+
+  // Legacy method kept for backward compatibility if referenced elsewhere
   Future<QuerySnapshot> search(String searchQuery) async {
-    String cleanQuery = searchQuery.trim().toLowerCase();
-    return await FirebaseFirestore.instance
-        .collection("Items")
-        .where("SearchKey", isGreaterThanOrEqualTo: cleanQuery)
-        .where("SearchKey", isLessThanOrEqualTo: '$cleanQuery\nz')
-        .get();
+    return await getAllFoodItems();
   }
 
   // --- USER PROFILE & ACCOUNT MANAGEMENT ---
@@ -92,20 +92,20 @@ class DatabaseMethods {
 
   // --- WALLET MANAGEMENT ---
 
-  // Update user wallet balance safely
+  // Update user wallet balance safely using FieldValue.increment
   Future<void> updateUserWallet(dynamic amount, String id) async {
-    dynamic walletValue;
+    int parsedAmount = 0;
 
     if (amount is int) {
-      walletValue = FieldValue.increment(amount);
+      parsedAmount = amount;
     } else if (amount is String) {
-      walletValue = int.tryParse(amount) ?? amount;
-    } else {
-      walletValue = amount;
+      parsedAmount = int.tryParse(amount) ?? 0;
     }
 
+    if (parsedAmount == 0) return;
+
     await FirebaseFirestore.instance.collection("users").doc(id).update({
-      "Wallet": walletValue,
+      "Wallet": FieldValue.increment(parsedAmount),
     });
   }
 
