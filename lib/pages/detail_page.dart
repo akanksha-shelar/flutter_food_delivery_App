@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:firebase_auth/firebase_auth.dart'; // Added Firebase Auth import
 import 'package:flutter/material.dart';
 import 'package:food_delivery_app/pages/order.dart';
 import 'package:food_delivery_app/pages/wallet.dart';
@@ -30,35 +31,49 @@ class _DetailPageState extends State<DetailPage> {
   String? id, name, email, wallet, address, phone;
   final TextEditingController addresscontroller = TextEditingController();
 
+  // Razorpay Instance
   late Razorpay _razorpay;
 
+  // App Theme Colors
   final Color primaryRed = const Color(0xFFEF2B39);
   final Color lightBgColor = const Color(0xFFECECF8);
 
-  Future<void> getontheload() async {
-    id = await SharedpreferenceHelper().getUserId();
+  getontheload() async {
+    // 1. Verify Active Firebase Auth User Session
+    User? firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser != null) {
+      id = firebaseUser.uid;
+    } else {
+      id = await SharedpreferenceHelper().getUserId();
+    }
+
     name = await SharedpreferenceHelper().getUserName();
     email = await SharedpreferenceHelper().getUserEmail();
     wallet = await SharedpreferenceHelper().getUserWallet();
     address = await SharedpreferenceHelper().getUserAddress();
     phone = await SharedpreferenceHelper().getUserPhone();
 
+    // Fallback: Fetch missing email/phone from Firestore
     if (id != null &&
         (phone == null || phone!.isEmpty || email == null || email!.isEmpty)) {
-      DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
-      if (userDoc.exists) {
-        var data = userDoc.data() as Map<String, dynamic>?;
-        if (data != null) {
-          phone ??= data["Phone"]?.toString();
-          email ??= data["Email"]?.toString();
+      try {
+        DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
+        if (userDoc.exists) {
+          var data = userDoc.data() as Map<String, dynamic>?;
+          if (data != null) {
+            phone ??= data["Phone"]?.toString();
+            email ??= data["Email"]?.toString();
 
-          if (phone != null && phone!.isNotEmpty) {
-            await SharedpreferenceHelper().saveUserPhone(phone!);
-          }
-          if (email != null && email!.isNotEmpty) {
-            await SharedpreferenceHelper().saveUserEmail(email!);
+            if (phone != null && phone!.isNotEmpty) {
+              await SharedpreferenceHelper().saveUserPhone(phone!);
+            }
+            if (email != null && email!.isNotEmpty) {
+              await SharedpreferenceHelper().saveUserEmail(email!);
+            }
           }
         }
+      } catch (e) {
+        debugPrint("Error fetching user details from Firestore: $e");
       }
     }
 
@@ -70,14 +85,18 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  Future<void> fetchLiveWallet() async {
+  fetchLiveWallet() async {
     if (email != null) {
-      QuerySnapshot snapshot = await DatabaseMethods().getUserWalletbyemail(
-        email!,
-      );
-      if (snapshot.docs.isNotEmpty) {
-        var data = snapshot.docs.first.data() as Map<String, dynamic>;
-        wallet = data["Wallet"]?.toString() ?? "0";
+      try {
+        QuerySnapshot snapshot = await DatabaseMethods().getUserWalletbyemail(
+          email!,
+        );
+        if (snapshot.docs.isNotEmpty) {
+          var data = snapshot.docs.first.data() as Map<String, dynamic>;
+          wallet = data["Wallet"]?.toString() ?? "0";
+        }
+      } catch (e) {
+        debugPrint("Error fetching wallet balance: $e");
       }
     }
   }
@@ -85,9 +104,10 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    totalprice = int.tryParse(widget.price) ?? 0;
+    totalprice = int.parse(widget.price);
     getontheload();
 
+    // Initialize Razorpay
     _razorpay = Razorpay();
     _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
     _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
@@ -101,6 +121,7 @@ class _DetailPageState extends State<DetailPage> {
     super.dispose();
   }
 
+  // --- Razorpay Payment Callbacks ---
   void _handlePaymentSuccess(PaymentSuccessResponse response) async {
     await placeOrder(paymentMethod: "Razorpay (Card/UPI)");
   }
@@ -183,8 +204,14 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
+  // --- Order Placement Function ---
   Future<void> placeOrder({required String paymentMethod}) async {
-    id ??= await SharedpreferenceHelper().getUserId();
+    User? firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser != null) {
+      id = firebaseUser.uid;
+    } else {
+      id ??= await SharedpreferenceHelper().getUserId();
+    }
 
     if (id == null || id!.isEmpty) {
       if (!mounted) return;
@@ -192,7 +219,7 @@ class _DetailPageState extends State<DetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.red,
-          content: Text("User ID missing. Please log in again."),
+          content: Text("Authentication required. Please log in again."),
         ),
       );
       return;
@@ -215,6 +242,7 @@ class _DetailPageState extends State<DetailPage> {
     };
 
     try {
+      // 1. Save Transaction to User Collection
       await DatabaseMethods().addUserTransaction({
         "Amount": totalprice.toString(),
         "Type": "Debit",
@@ -222,7 +250,10 @@ class _DetailPageState extends State<DetailPage> {
         "TimeStamp": DateTime.now().toIso8601String(),
       }, id!);
 
+      // 2. Save Order to User Subcollection
       await DatabaseMethods().addUserOrderDetails(userOrderMap, id!, orderId);
+
+      // 3. Save Order to Admin / Global Collection
       await DatabaseMethods().addAdminOrderDetails(userOrderMap, orderId);
 
       if (!mounted) return;
@@ -237,6 +268,7 @@ class _DetailPageState extends State<DetailPage> {
         ),
       );
 
+      // Redirect to Order Page
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const Order()),
@@ -248,14 +280,16 @@ class _DetailPageState extends State<DetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: primaryRed,
-          content: Text("Failed to save order to database: $e"),
+          content: Text("Permission Denied or Database Error: $e"),
         ),
       );
     }
   }
 
+  // --- Process Payment and Checkout Logic ---
   Future<void> _processCheckout() async {
     setState(() => isLoading = true);
+
     await fetchLiveWallet();
 
     int currentWalletBalance = int.tryParse(wallet ?? '0') ?? 0;
@@ -263,8 +297,12 @@ class _DetailPageState extends State<DetailPage> {
     if (currentWalletBalance >= totalprice) {
       try {
         int newBalance = currentWalletBalance - totalprice;
+
+        // Deduct balance in Firebase
         await DatabaseMethods().updateUserWallet(newBalance.toString(), id!);
         await SharedpreferenceHelper().saveUserWallet(newBalance.toString());
+
+        // Save order in Firebase
         await placeOrder(paymentMethod: "Wallet");
       } catch (e) {
         if (mounted) setState(() => isLoading = false);
@@ -285,7 +323,7 @@ class _DetailPageState extends State<DetailPage> {
   void showAddressConfirmationDialog() {
     showDialog(
       context: context,
-      builder: (dialogContext) {
+      builder: (context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
@@ -303,9 +341,9 @@ class _DetailPageState extends State<DetailPage> {
               ),
               TextButton.icon(
                 onPressed: () async {
-                  Navigator.pop(dialogContext);
-                  bool? updated = await openBox();
-                  if (updated == true && mounted) {
+                  Navigator.pop(context);
+                  await openBox();
+                  if (mounted) {
                     showAddressConfirmationDialog();
                   }
                 },
@@ -360,7 +398,7 @@ class _DetailPageState extends State<DetailPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(context),
               child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
@@ -381,7 +419,7 @@ class _DetailPageState extends State<DetailPage> {
                   );
                   return;
                 }
-                Navigator.pop(dialogContext);
+                Navigator.pop(context);
                 _processCheckout();
               },
               child: const Text(
@@ -401,7 +439,7 @@ class _DetailPageState extends State<DetailPage> {
   void showInsufficientBalanceDialog(int requiredAmount, int currentBalance) {
     showDialog(
       context: context,
-      builder: (dialogContext) {
+      builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
@@ -428,7 +466,7 @@ class _DetailPageState extends State<DetailPage> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(dialogContext);
+                Navigator.pop(context);
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const Wallet()),
@@ -450,7 +488,7 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
               onPressed: () {
-                Navigator.pop(dialogContext);
+                Navigator.pop(context);
                 setState(() => isLoading = true);
                 openRazorpayCheckout(requiredAmount.toString());
               },
@@ -468,97 +506,91 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Future<bool?> openBox() {
-    addresscontroller.text = address ?? '';
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Add Address",
-                    style: TextStyle(
-                      color: primaryRed,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(dialogContext, false),
-                    child: const Icon(Icons.cancel, color: Colors.grey),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20.0),
-              const Text(
-                "Delivery Address",
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 10.0),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.black26, width: 1.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: TextField(
-                  controller: addresscontroller,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: "Enter full address",
+  Future openBox() => showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Add Address",
+                  style: TextStyle(
+                    color: primaryRed,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
                   ),
                 ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Icon(Icons.cancel, color: Colors.grey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20.0),
+            const Text(
+              "Delivery Address",
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 10.0),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10.0),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.black26, width: 1.5),
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(height: 20.0),
-              Center(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryRed,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 30,
-                      vertical: 10,
-                    ),
+              child: TextField(
+                controller: addresscontroller,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: "Enter full address",
+                ),
+              ),
+            ),
+            const SizedBox(height: 20.0),
+            Center(
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryRed,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  onPressed: () async {
-                    String enteredAddress = addresscontroller.text.trim();
-                    if (enteredAddress.isNotEmpty) {
-                      address = enteredAddress;
-                      await SharedpreferenceHelper().saveUserAddress(address!);
-                      if (id != null) {
-                        await DatabaseMethods().updateUserProfile(id!, {
-                          "Address": address,
-                        });
-                      }
-                      if (mounted) setState(() {});
-                      if (dialogContext.mounted) {
-                        Navigator.pop(dialogContext, true);
-                      }
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 30,
+                    vertical: 10,
+                  ),
+                ),
+                onPressed: () async {
+                  if (addresscontroller.text.trim().isNotEmpty) {
+                    address = addresscontroller.text.trim();
+                    await SharedpreferenceHelper().saveUserAddress(address!);
+                    if (id != null) {
+                      await DatabaseMethods().updateUserProfile(id!, {
+                        "Address": address,
+                      });
                     }
-                  },
-                  child: const Text(
-                    "Save",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    if (mounted) setState(() {});
+                    if (context.mounted) Navigator.pop(context);
+                  }
+                },
+                child: const Text(
+                  "Save",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -570,7 +602,9 @@ class _DetailPageState extends State<DetailPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             GestureDetector(
-              onTap: () => Navigator.pop(context),
+              onTap: () {
+                Navigator.pop(context);
+              },
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -607,8 +641,7 @@ class _DetailPageState extends State<DetailPage> {
                   onTap: () {
                     if (quantity > 1) {
                       quantity--;
-                      totalprice =
-                          totalprice - (int.tryParse(widget.price) ?? 0);
+                      totalprice = totalprice - int.parse(widget.price);
                       setState(() {});
                     }
                   },
@@ -630,7 +663,7 @@ class _DetailPageState extends State<DetailPage> {
                 GestureDetector(
                   onTap: () {
                     quantity++;
-                    totalprice = totalprice + (int.tryParse(widget.price) ?? 0);
+                    totalprice = totalprice + int.parse(widget.price);
                     setState(() {});
                   },
                   child: Container(
@@ -683,12 +716,9 @@ class _DetailPageState extends State<DetailPage> {
                   GestureDetector(
                     onTap: isLoading
                         ? null
-                        : () async {
+                        : () {
                             if (address == null || address!.trim().isEmpty) {
-                              bool? added = await openBox();
-                              if (added == true && mounted) {
-                                showAddressConfirmationDialog();
-                              }
+                              openBox();
                             } else {
                               showAddressConfirmationDialog();
                             }

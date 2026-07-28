@@ -107,27 +107,13 @@ class DatabaseMethods {
     }
   }
 
-  // Dedicated method to safely deduct an order amount from user wallet
+  // Dedicated method to safely deduct an order amount from user wallet using FieldValue.increment
   Future<void> deductUserWallet(int orderAmount, String userId) async {
     if (orderAmount <= 0) return;
 
-    DocumentSnapshot userDoc = await FirebaseFirestore.instance
-        .collection("users")
-        .doc(userId)
-        .get();
-
-    if (userDoc.exists) {
-      var data = userDoc.data() as Map<String, dynamic>?;
-      int currentBalance =
-          int.tryParse(data?["Wallet"]?.toString() ?? "0") ?? 0;
-      int newBalance = currentBalance - orderAmount;
-
-      if (newBalance < 0) newBalance = 0;
-
-      await FirebaseFirestore.instance.collection("users").doc(userId).update({
-        "Wallet": newBalance.toString(),
-      });
-    }
+    await FirebaseFirestore.instance.collection("users").doc(userId).update({
+      "Wallet": FieldValue.increment(-orderAmount),
+    });
   }
 
   // --- TRANSACTIONS ---
