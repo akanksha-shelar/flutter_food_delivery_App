@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:flutter/material.dart';
 import 'package:food_delivery_app/pages/order.dart';
 import 'package:food_delivery_app/pages/wallet.dart';
@@ -26,17 +26,16 @@ class DetailPage extends StatefulWidget {
 class _DetailPageState extends State<DetailPage> {
   int quantity = 1;
   int totalprice = 0;
+  bool isLoading = false;
   String? id, name, email, wallet, address, phone;
-  TextEditingController addresscontroller = TextEditingController();
+  final TextEditingController addresscontroller = TextEditingController();
 
-  // Razorpay Instance
   late Razorpay _razorpay;
 
-  // App Theme Colors
   final Color primaryRed = const Color(0xFFEF2B39);
   final Color lightBgColor = const Color(0xFFECECF8);
 
-  getontheload() async {
+  Future<void> getontheload() async {
     id = await SharedpreferenceHelper().getUserId();
     name = await SharedpreferenceHelper().getUserName();
     email = await SharedpreferenceHelper().getUserEmail();
@@ -44,11 +43,9 @@ class _DetailPageState extends State<DetailPage> {
     address = await SharedpreferenceHelper().getUserAddress();
     phone = await SharedpreferenceHelper().getUserPhone();
 
-    // Fallback: Fetch missing email/phone from Firestore
     if (id != null &&
         (phone == null || phone!.isEmpty || email == null || email!.isEmpty)) {
-      firestore.DocumentSnapshot userDoc = await DatabaseMethods()
-          .getUserDetails(id!);
+      DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
       if (userDoc.exists) {
         var data = userDoc.data() as Map<String, dynamic>?;
         if (data != null) {
@@ -73,10 +70,11 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  fetchLiveWallet() async {
+  Future<void> fetchLiveWallet() async {
     if (email != null) {
-      firestore.QuerySnapshot snapshot = await DatabaseMethods()
-          .getUserWalletbyemail(email!);
+      QuerySnapshot snapshot = await DatabaseMethods().getUserWalletbyemail(
+        email!,
+      );
       if (snapshot.docs.isNotEmpty) {
         var data = snapshot.docs.first.data() as Map<String, dynamic>;
         wallet = data["Wallet"]?.toString() ?? "0";
@@ -87,10 +85,9 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    totalprice = int.parse(widget.price);
+    totalprice = int.tryParse(widget.price) ?? 0;
     getontheload();
 
-    // Initialize Razorpay
     _razorpay = Razorpay();
     _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
     _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
@@ -104,37 +101,41 @@ class _DetailPageState extends State<DetailPage> {
     super.dispose();
   }
 
-  // --- Razorpay Payment Callbacks ---
-  void _handlePaymentSuccess(PaymentSuccessResponse response) {
-    placeOrder(paymentMethod: "Razorpay (Card/UPI)");
+  void _handlePaymentSuccess(PaymentSuccessResponse response) async {
+    await placeOrder(paymentMethod: "Razorpay (Card/UPI)");
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: primaryRed,
-        content: Text("Payment Failed: ${response.message ?? 'Unknown Error'}"),
-      ),
-    );
+    if (mounted) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: primaryRed,
+          content: Text(
+            "Payment Failed: ${response.message ?? 'Unknown Error'}",
+          ),
+        ),
+      );
+    }
   }
 
   void _handleExternalWallet(ExternalWalletResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.blue,
-        content: Text("External Wallet Selected: ${response.walletName}"),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.blue,
+          content: Text("External Wallet Selected: ${response.walletName}"),
+        ),
+      );
+    }
   }
 
   void openRazorpayCheckout(String amount) async {
     int enteredAmount = int.tryParse(amount) ?? 0;
     if (enteredAmount <= 0) return;
 
-    // Fetch latest user details if needed
     if ((phone == null || phone!.isEmpty) && id != null) {
-      firestore.DocumentSnapshot userDoc = await DatabaseMethods()
-          .getUserDetails(id!);
+      DocumentSnapshot userDoc = await DatabaseMethods().getUserDetails(id!);
       if (userDoc.exists) {
         var data = userDoc.data() as Map<String, dynamic>?;
         phone = data?["Phone"]?.toString();
@@ -142,7 +143,6 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
 
-    // Clean phone number for Razorpay prefill
     String cleanPhone = '';
     if (phone != null && phone!.isNotEmpty) {
       String digitsOnly = phone!.replaceAll(RegExp(r'\D'), '');
@@ -153,13 +153,22 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
 
+    if (cleanPhone.isEmpty) {
+      cleanPhone = '9999999999';
+    }
+
     var options = {
       'key': razorpayKey,
-      'amount': enteredAmount * 100, // Paise conversion
+      'amount': enteredAmount * 100,
       'name': 'Food Delivery App',
       'description': 'Order Payment for ${widget.name}',
       'timeout': 300,
-      'prefill': {'contact': cleanPhone, 'email': email ?? ''},
+      'prefill': {
+        'contact': cleanPhone,
+        'email': (email != null && email!.isNotEmpty)
+            ? email
+            : 'test@example.com',
+      },
       'readonly': {'contact': true, 'email': false},
       'external': {
         'wallets': ['paytm'],
@@ -169,17 +178,17 @@ class _DetailPageState extends State<DetailPage> {
     try {
       _razorpay.open(options);
     } catch (e) {
+      if (mounted) setState(() => isLoading = false);
       debugPrint("Error opening Razorpay checkout: $e");
     }
   }
 
-  // --- Order Placement Function ---
   Future<void> placeOrder({required String paymentMethod}) async {
-    // Reload ID if missing
     id ??= await SharedpreferenceHelper().getUserId();
 
     if (id == null || id!.isEmpty) {
       if (!mounted) return;
+      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.red,
@@ -206,7 +215,6 @@ class _DetailPageState extends State<DetailPage> {
     };
 
     try {
-      // Save transaction history
       await DatabaseMethods().addUserTransaction({
         "Amount": totalprice.toString(),
         "Type": "Debit",
@@ -214,7 +222,6 @@ class _DetailPageState extends State<DetailPage> {
         "TimeStamp": DateTime.now().toIso8601String(),
       }, id!);
 
-      // Save Order Details to User and Admin Nodes
       await DatabaseMethods().addUserOrderDetails(userOrderMap, id!, orderId);
       await DatabaseMethods().addAdminOrderDetails(userOrderMap, orderId);
 
@@ -230,178 +237,171 @@ class _DetailPageState extends State<DetailPage> {
         ),
       );
 
-      // Redirect to Order Page
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const Order()),
       );
     } catch (e) {
-      debugPrint("Error placing order: $e");
+      debugPrint("Error placing order in Firebase: $e");
       if (!mounted) return;
+      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: primaryRed,
-          content: Text("Failed to place order: $e"),
+          content: Text("Failed to save order to database: $e"),
         ),
       );
     }
   }
 
-  // --- Process Payment and Checkout Logic ---
   Future<void> _processCheckout() async {
-    // Fetch latest wallet balance directly from Firestore
+    setState(() => isLoading = true);
     await fetchLiveWallet();
 
     int currentWalletBalance = int.tryParse(wallet ?? '0') ?? 0;
 
-    // Check if the user has sufficient balance
     if (currentWalletBalance >= totalprice) {
       try {
-        // 1. Deduct amount from Firestore
-        await DatabaseMethods().deductUserWallet(totalprice, id!);
-
-        // 2. Save new remaining balance locally
         int newBalance = currentWalletBalance - totalprice;
+        await DatabaseMethods().updateUserWallet(newBalance.toString(), id!);
         await SharedpreferenceHelper().saveUserWallet(newBalance.toString());
-
-        // 3. Complete order placement
         await placeOrder(paymentMethod: "Wallet");
       } catch (e) {
+        if (mounted) setState(() => isLoading = false);
         debugPrint("Wallet deduction failed: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: primaryRed,
+            content: Text("Wallet transaction failed: $e"),
+          ),
+        );
       }
     } else {
-      // Insufficient balance handling
+      if (mounted) setState(() => isLoading = false);
       showInsufficientBalanceDialog(totalprice, currentWalletBalance);
     }
   }
 
-  // --- Address Confirmation Dialog ---
   void showAddressConfirmationDialog() {
     showDialog(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Confirm Address",
+                style: TextStyle(
+                  color: primaryRed,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
-              title: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Confirm Address",
-                    style: TextStyle(
-                      color: primaryRed,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
+              TextButton.icon(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  bool? updated = await openBox();
+                  if (updated == true && mounted) {
+                    showAddressConfirmationDialog();
+                  }
+                },
+                icon: Icon(Icons.edit, size: 16, color: primaryRed),
+                label: Text(
+                  "Edit",
+                  style: TextStyle(
+                    color: primaryRed,
+                    fontWeight: FontWeight.bold,
                   ),
-                  TextButton.icon(
-                    onPressed: () async {
-                      Navigator.pop(context); // Close confirm dialog
-                      await openBox(); // Open edit address box
-                      showAddressConfirmationDialog(); // Re-open confirmation dialog
-                    },
-                    icon: Icon(Icons.edit, size: 16, color: primaryRed),
-                    label: Text(
-                      "Edit",
-                      style: TextStyle(
-                        color: primaryRed,
-                        fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Please confirm your delivery address before placing order:",
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: lightBgColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.black12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.location_on, color: primaryRed, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        (address != null && address!.trim().isNotEmpty)
+                            ? address!
+                            : "No address provided. Please tap Edit.",
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Please confirm your delivery address before placing order:",
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: lightBgColor,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.black12),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.location_on, color: primaryRed, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            (address != null && address!.trim().isNotEmpty)
-                                ? address!
-                                : "No address provided. Please tap Edit.",
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    "Cancel",
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  ],
                 ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryRed,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  onPressed: () {
-                    if (address == null || address!.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "Please add a valid delivery address first.",
-                          ),
-                        ),
-                      );
-                      return;
-                    }
-                    Navigator.pop(context);
-                    _processCheckout();
-                  },
-                  child: const Text(
-                    "Confirm & Proceed",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryRed,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ],
-            );
-          },
+              ),
+              onPressed: () {
+                if (address == null || address!.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Please add a valid delivery address first.",
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext);
+                _processCheckout();
+              },
+              child: const Text(
+                "Confirm & Proceed",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
   }
 
-  // --- Insufficient Balance Dialog ---
   void showInsufficientBalanceDialog(int requiredAmount, int currentBalance) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
@@ -428,7 +428,7 @@ class _DetailPageState extends State<DetailPage> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const Wallet()),
@@ -450,7 +450,8 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
               onPressed: () {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
+                setState(() => isLoading = true);
                 openRazorpayCheckout(requiredAmount.toString());
               },
               child: const Text(
@@ -467,91 +468,97 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Future openBox() => showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Add Address",
-                  style: TextStyle(
-                    color: primaryRed,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+  Future<bool?> openBox() {
+    addresscontroller.text = address ?? '';
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Add Address",
+                    style: TextStyle(
+                      color: primaryRed,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.cancel, color: Colors.grey),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20.0),
-            const Text(
-              "Delivery Address",
-              style: TextStyle(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 10.0),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10.0),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.black26, width: 1.5),
-                borderRadius: BorderRadius.circular(10),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(dialogContext, false),
+                    child: const Icon(Icons.cancel, color: Colors.grey),
+                  ),
+                ],
               ),
-              child: TextField(
-                controller: addresscontroller,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: "Enter full address",
+              const SizedBox(height: 20.0),
+              const Text(
+                "Delivery Address",
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 10.0),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.black26, width: 1.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: TextField(
+                  controller: addresscontroller,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: "Enter full address",
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20.0),
-            Center(
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryRed,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              const SizedBox(height: 20.0),
+              Center(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryRed,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 10,
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 30,
-                    vertical: 10,
-                  ),
-                ),
-                onPressed: () async {
-                  if (addresscontroller.text.trim().isNotEmpty) {
-                    address = addresscontroller.text.trim();
-                    await SharedpreferenceHelper().saveUserAddress(address!);
-                    if (id != null) {
-                      await DatabaseMethods().updateUserProfile(id!, {
-                        "Address": address,
-                      });
+                  onPressed: () async {
+                    String enteredAddress = addresscontroller.text.trim();
+                    if (enteredAddress.isNotEmpty) {
+                      address = enteredAddress;
+                      await SharedpreferenceHelper().saveUserAddress(address!);
+                      if (id != null) {
+                        await DatabaseMethods().updateUserProfile(id!, {
+                          "Address": address,
+                        });
+                      }
+                      if (mounted) setState(() {});
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext, true);
+                      }
                     }
-                    if (mounted) setState(() {});
-                    if (context.mounted) Navigator.pop(context);
-                  }
-                },
-                child: const Text(
-                  "Save",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  },
+                  child: const Text(
+                    "Save",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -563,9 +570,7 @@ class _DetailPageState extends State<DetailPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             GestureDetector(
-              onTap: () {
-                Navigator.pop(context);
-              },
+              onTap: () => Navigator.pop(context),
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -602,7 +607,8 @@ class _DetailPageState extends State<DetailPage> {
                   onTap: () {
                     if (quantity > 1) {
                       quantity--;
-                      totalprice = totalprice - int.parse(widget.price);
+                      totalprice =
+                          totalprice - (int.tryParse(widget.price) ?? 0);
                       setState(() {});
                     }
                   },
@@ -624,7 +630,7 @@ class _DetailPageState extends State<DetailPage> {
                 GestureDetector(
                   onTap: () {
                     quantity++;
-                    totalprice = totalprice + int.parse(widget.price);
+                    totalprice = totalprice + (int.tryParse(widget.price) ?? 0);
                     setState(() {});
                   },
                   child: Container(
@@ -675,13 +681,18 @@ class _DetailPageState extends State<DetailPage> {
                     ],
                   ),
                   GestureDetector(
-                    onTap: () {
-                      if (address == null || address!.trim().isEmpty) {
-                        openBox();
-                      } else {
-                        showAddressConfirmationDialog();
-                      }
-                    },
+                    onTap: isLoading
+                        ? null
+                        : () async {
+                            if (address == null || address!.trim().isEmpty) {
+                              bool? added = await openBox();
+                              if (added == true && mounted) {
+                                showAddressConfirmationDialog();
+                              }
+                            } else {
+                              showAddressConfirmationDialog();
+                            }
+                          },
                     child: Container(
                       width: MediaQuery.of(context).size.width / 1.8,
                       padding: const EdgeInsets.symmetric(
@@ -689,34 +700,45 @@ class _DetailPageState extends State<DetailPage> {
                         horizontal: 16,
                       ),
                       decoration: BoxDecoration(
-                        color: primaryRed,
+                        color: isLoading ? Colors.grey : primaryRed,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Text(
-                            "ORDER NOW",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16.0,
-                              fontFamily: 'Poppins',
-                              fontWeight: FontWeight.bold,
+                          isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  "ORDER NOW",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16.0,
+                                    fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                          if (!isLoading) ...[
+                            const SizedBox(width: 15.0),
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.shopping_cart_outlined,
+                                color: Colors.white,
+                                size: 20,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 15.0),
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.white24,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.shopping_cart_outlined,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

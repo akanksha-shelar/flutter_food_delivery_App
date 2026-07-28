@@ -4,7 +4,9 @@ import 'package:food_delivery_app/service/shared_pref.dart';
 import 'package:food_delivery_app/service/widget_support.dart';
 
 class Order extends StatefulWidget {
-  const Order({super.key});
+  final String? orderId; // Optional: Pass a specific Order ID
+
+  const Order({super.key, this.orderId});
 
   @override
   State<Order> createState() => _OrderState();
@@ -59,11 +61,34 @@ class _OrderState extends State<Order> {
           );
         }
 
+        // Filter for specific order if widget.orderId was passed
+        List docs = snapshot.data.docs;
+        if (widget.orderId != null && widget.orderId!.isNotEmpty) {
+          docs = docs.where((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            return data["OrderId"] == widget.orderId ||
+                doc.id == widget.orderId;
+          }).toList();
+
+          if (docs.isEmpty) {
+            return const Center(
+              child: Text(
+                "Order not found!",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black54,
+                ),
+              ),
+            );
+          }
+        }
+
         return ListView.builder(
           padding: const EdgeInsets.only(top: 15.0, bottom: 20.0),
-          itemCount: snapshot.data.docs.length,
+          itemCount: docs.length,
           itemBuilder: (context, index) {
-            var ds = snapshot.data.docs[index];
+            var ds = docs[index];
             String foodImage = ds["FoodImage"] ?? "";
             String foodName = ds["FoodName"] ?? "Food Item";
             String address = ds["Address"] ?? "No Address Provided";
@@ -206,7 +231,7 @@ class _OrderState extends State<Order> {
         margin: const EdgeInsets.only(top: 50.0),
         child: Column(
           children: [
-            // Top Header Bar with Back Button & Title
+            // Top Header Bar with Back Button & Dynamic Title
             Material(
               elevation: 2.0,
               child: Container(
@@ -240,7 +265,7 @@ class _OrderState extends State<Order> {
                     ),
                     Center(
                       child: Text(
-                        "Orders",
+                        widget.orderId != null ? "Order Details" : "Orders",
                         style: AppWidget.HeadlineTextFieldStyle(),
                       ),
                     ),
