@@ -12,7 +12,6 @@ class AdminLogIn extends StatefulWidget {
 }
 
 class _AdminLogInState extends State<AdminLogIn> {
-  // Removed 'new' keyword (redundant in modern Dart)
   final TextEditingController usernamecontroller = TextEditingController();
   final TextEditingController passwordcontroller = TextEditingController();
 
@@ -142,7 +141,7 @@ class _AdminLogInState extends State<AdminLogIn> {
                           ),
                         ),
                         const SizedBox(height: 30.0),
-                      ], // Fixed brackets here
+                      ],
                     ),
                   ),
                 ),
@@ -154,36 +153,77 @@ class _AdminLogInState extends State<AdminLogIn> {
     );
   }
 
-  loginAdmin() {
-    FirebaseFirestore.instance.collection("Admin").get().then((snapshot) {
-      snapshot.docs.forEach((result) {
-        if (result.data()['username'] != usernamecontroller.text.trim()) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.red,
-              content: Text(
-                "Your username is not correct",
-                style: TextStyle(fontSize: 18.0),
-              ),
+  loginAdmin() async {
+    final String username = usernamecontroller.text.trim();
+    final String password = passwordcontroller.text.trim();
+
+    if (username.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text(
+            "Please enter both username and password",
+            style: TextStyle(fontSize: 18.0),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Query Firestore directly for the admin user
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection("Admin")
+          .where("username", isEqualTo: username)
+          .get();
+
+      if (!mounted) return;
+
+      // Check if user exists
+      if (snapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(
+              "Your username is not correct",
+              style: TextStyle(fontSize: 18.0),
             ),
-          ); // Text // SnackBar
-        } else if (result.data()['password'] != passwordcontroller.text) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.red,
-              content: Text(
-                "Your password is not correct",
-                style: TextStyle(fontSize: 18.0),
-              ),
+          ),
+        );
+        return;
+      }
+
+      // Check password match
+      var adminData = snapshot.docs.first.data() as Map<String, dynamic>;
+
+      if (adminData['password'] != password) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(
+              "Your password is not correct",
+              style: TextStyle(fontSize: 18.0),
             ),
-          ); // Text // SnackBar
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => HomeAdmin()),
-          );
-        }
-      });
-    });
+          ),
+        );
+      } else {
+        // Navigate on successful login
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeAdmin()),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            "Error logging in: $e",
+            style: const TextStyle(fontSize: 18.0),
+          ),
+        ),
+      );
+    }
   }
 }
