@@ -83,8 +83,8 @@ class _ManageUsersState extends State<ManageUsers> {
                                           Expanded(
                                             child: Text(
                                               ds["Name"] ?? "No Name",
-                                              style:
-                                                  AppWidget.boldTextFieldStyle(),
+                                              style: AppWidget
+                                                  .boldTextFieldStyle(),
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
@@ -100,8 +100,8 @@ class _ManageUsersState extends State<ManageUsers> {
                                           Expanded(
                                             child: Text(
                                               ds["Email"] ?? "No Email",
-                                              style:
-                                                  AppWidget.SimpleTextFieldStyle(),
+                                              style: AppWidget
+                                                  .SimpleTextFieldStyle(),
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
@@ -127,8 +127,8 @@ class _ManageUsersState extends State<ManageUsers> {
                                           child: Center(
                                             child: Text(
                                               "Remove",
-                                              style:
-                                                  AppWidget.whiteTextFieldStyle(),
+                                              style: AppWidget
+                                                  .whiteTextFieldStyle(),
                                             ),
                                           ),
                                         ),

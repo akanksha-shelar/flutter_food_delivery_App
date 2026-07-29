@@ -1,73 +1,85 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DatabaseMethods {
-  // --- SEARCH MANAGEMENT ---
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Fetch all food items from Firestore for client-side substring matching
+  // ===========================================================================
+  // 1. SEARCH & FOOD ITEMS CATALOG
+  // ===========================================================================
+
+  /// Fetch all food items from Firestore for client-side matching
   Future<QuerySnapshot> getAllFoodItems() async {
-    return await FirebaseFirestore.instance.collection("Items").get();
+    return await _firestore.collection("Items").get();
   }
 
-  // Legacy method kept for backward compatibility if referenced elsewhere
+  /// Legacy search fallback method
   Future<QuerySnapshot> search(String searchQuery) async {
     return await getAllFoodItems();
   }
 
-  // --- USER PROFILE & ACCOUNT MANAGEMENT ---
-
-  // Fetch real-time Stream of all users for Admin
-  Future<Stream<QuerySnapshot>> getAllUsers() async {
-    return FirebaseFirestore.instance.collection("users").snapshots();
+  /// Add new food item to catalog (Admin)
+  Future<void> addFoodItem(Map<String, dynamic> itemData, String id) async {
+    await _firestore.collection("Items").doc(id).set(itemData);
   }
 
-  // Add initial user details on fresh registration
+  /// Update food item details (Admin)
+  Future<void> updateFoodItem(
+      String id, Map<String, dynamic> updateData) async {
+    await _firestore.collection("Items").doc(id).update(updateData);
+  }
+
+  /// Delete food item from catalog (Admin)
+  Future<void> deleteFoodItem(String id) async {
+    await _firestore.collection("Items").doc(id).delete();
+  }
+
+  // ===========================================================================
+  // 2. USER PROFILE & ACCOUNT MANAGEMENT
+  // ===========================================================================
+
+  /// Stream real-time snapshot of all client users (Admin View)
+  Stream<QuerySnapshot> getAllUsers() {
+    return _firestore.collection("users").snapshots();
+  }
+
+  /// Save new user profile upon registration
   Future<void> addUserDetails(
-    Map<String, dynamic> userInfoMap,
-    String id,
-  ) async {
-    await FirebaseFirestore.instance
-        .collection("users")
-        .doc(id)
-        .set(userInfoMap);
+      Map<String, dynamic> userInfoMap, String id) async {
+    await _firestore.collection("users").doc(id).set(userInfoMap);
   }
 
-  // Get user details by Doc ID / Firebase Auth UID
+  /// Get user profile document by UID
   Future<DocumentSnapshot> getUserDetails(String id) async {
-    return await FirebaseFirestore.instance.collection("users").doc(id).get();
+    return await _firestore.collection("users").doc(id).get();
   }
 
-  // Update specific profile fields by User ID
+  /// Update user profile details
   Future<void> updateUserProfile(
-    String id,
-    Map<String, dynamic> updateData,
-  ) async {
-    await FirebaseFirestore.instance
-        .collection("users")
-        .doc(id)
-        .update(updateData);
+      String id, Map<String, dynamic> updateData) async {
+    await _firestore.collection("users").doc(id).update(updateData);
   }
 
-  // Fallback update/upsert user record by phone number when User ID is missing
+  /// Update or Insert user record by phone number if UID is missing
   Future<void> updateOrInsertUserByPhone({
     required String phone,
     required String name,
     required String address,
     String? email,
   }) async {
-    QuerySnapshot query = await FirebaseFirestore.instance
+    QuerySnapshot query = await _firestore
         .collection("users")
         .where("Phone", isEqualTo: phone)
         .get();
 
     if (query.docs.isNotEmpty) {
       String docId = query.docs.first.id;
-      await FirebaseFirestore.instance.collection("users").doc(docId).update({
+      await _firestore.collection("users").doc(docId).update({
         "Name": name,
         "Address": address,
         if (email != null && email.isNotEmpty) "Email": email,
       });
     } else {
-      await FirebaseFirestore.instance.collection("users").add({
+      await _firestore.collection("users").add({
         "Phone": phone,
         "Name": name,
         "Address": address,
@@ -77,62 +89,62 @@ class DatabaseMethods {
     }
   }
 
-  // Delete user document from Firestore
+  /// Delete user profile (Admin)
   Future<void> deleteUser(String id) async {
-    await FirebaseFirestore.instance.collection("users").doc(id).delete();
+    await _firestore.collection("users").doc(id).delete();
   }
 
-  // Get user doc query snapshot by Email
+  /// Query user profile by email address
   Future<QuerySnapshot> getUserWalletbyemail(String email) async {
-    return await FirebaseFirestore.instance
+    return await _firestore
         .collection("users")
         .where("Email", isEqualTo: email)
         .get();
   }
 
-  // --- WALLET MANAGEMENT ---
+  // ===========================================================================
+  // 3. WALLET MANAGEMENT
+  // ===========================================================================
 
-  // Direct set or increment method for wallet balance
+  /// Update user wallet balance (supports string balance overwrite or integer increments)
   Future<void> updateUserWallet(dynamic amount, String id) async {
-    // If exact final remaining amount string is passed (e.g., "150")
     if (amount is String) {
-      await FirebaseFirestore.instance.collection("users").doc(id).update({
+      await _firestore.collection("users").doc(id).update({
         "Wallet": amount,
       });
     } else if (amount is int) {
-      // Incremental change (positive to add, negative to subtract)
-      await FirebaseFirestore.instance.collection("users").doc(id).update({
+      await _firestore.collection("users").doc(id).update({
         "Wallet": FieldValue.increment(amount),
       });
     }
   }
 
-  // Dedicated method to safely deduct an order amount from user wallet using FieldValue.increment
+  /// Deduct balance safely using FieldValue.increment
   Future<void> deductUserWallet(int orderAmount, String userId) async {
     if (orderAmount <= 0) return;
 
-    await FirebaseFirestore.instance.collection("users").doc(userId).update({
+    await _firestore.collection("users").doc(userId).update({
       "Wallet": FieldValue.increment(-orderAmount),
     });
   }
 
-  // --- TRANSACTIONS ---
+  // ===========================================================================
+  // 4. TRANSACTIONS MANAGEMENT
+  // ===========================================================================
 
-  // Record a transaction in user's sub-collection
+  /// Add transaction log entry into user's sub-collection
   Future<void> addUserTransaction(
-    Map<String, dynamic> transactionMap,
-    String id,
-  ) async {
-    await FirebaseFirestore.instance
+      Map<String, dynamic> transactionMap, String id) async {
+    await _firestore
         .collection("users")
         .doc(id)
         .collection("Transactions")
         .add(transactionMap);
   }
 
-  // Get stream of transaction history ordered by newest first
+  /// Stream user transaction history ordered by timestamp descending
   Stream<QuerySnapshot> getUserTransactions(String id) {
-    return FirebaseFirestore.instance
+    return _firestore
         .collection("users")
         .doc(id)
         .collection("Transactions")
@@ -140,23 +152,31 @@ class DatabaseMethods {
         .snapshots();
   }
 
-  // --- ORDER MANAGEMENT ---
+  // ===========================================================================
+  // 5. ORDER MANAGEMENT
+  // ===========================================================================
 
-  // Fetch real-time Stream of all orders for Admin (AllOrders screen)
-  Future<Stream<QuerySnapshot>> getAdminOrders() async {
-    return FirebaseFirestore.instance.collection("Orders").snapshots();
+  /// Stream all orders from top-level Orders collection (Admin View)
+  Stream<QuerySnapshot> getAdminOrders() {
+    return _firestore.collection("Orders").snapshots();
   }
 
-  // Mark order as Delivered in top-level Admin collection
+  /// Stream all orders across all subcollections via Collection Group
+  Stream<QuerySnapshot> getAllUserOrdersSubcollections() {
+    return _firestore.collectionGroup("Orders").snapshots();
+  }
+
+  /// Update order status to "Delivered" in global collection
   Future<void> updateAdminOrder(String id) async {
-    await FirebaseFirestore.instance.collection("Orders").doc(id).update({
+    await _firestore.collection("Orders").doc(id).update({
       "Status": "Delivered",
     });
   }
 
-  // Mark order as Delivered in the user's specific sub-collection
+  /// Update order status to "Delivered" in user sub-collection
   Future<void> updateUserOrder(String userId, String orderId) async {
-    await FirebaseFirestore.instance
+    if (userId.isEmpty) return;
+    await _firestore
         .collection("users")
         .doc(userId)
         .collection("Orders")
@@ -164,13 +184,13 @@ class DatabaseMethods {
         .update({"Status": "Delivered"});
   }
 
-  // Save order to the specific user's sub-collection
+  /// Save new order details under user's sub-collection
   Future<void> addUserOrderDetails(
     Map<String, dynamic> userOrderMap,
     String userId,
     String orderId,
   ) async {
-    await FirebaseFirestore.instance
+    await _firestore
         .collection("users")
         .doc(userId)
         .collection("Orders")
@@ -178,84 +198,95 @@ class DatabaseMethods {
         .set(userOrderMap);
   }
 
-  // Save order to top-level collection for Admin dashboard
+  /// Save new order details in top-level collection for global access
   Future<void> addAdminOrderDetails(
     Map<String, dynamic> userOrderMap,
     String orderId,
   ) async {
-    await FirebaseFirestore.instance
-        .collection("Orders")
-        .doc(orderId)
-        .set(userOrderMap);
+    await _firestore.collection("Orders").doc(orderId).set(userOrderMap);
   }
 
-  // Fetch real-time Stream of orders for a specific user
-  Future<Stream<QuerySnapshot>> getUserOrders(String id) async {
-    return FirebaseFirestore.instance
+  /// Stream orders for a specific user client
+  Stream<QuerySnapshot> getUserOrders(String id) {
+    return _firestore
         .collection("users")
         .doc(id)
         .collection("Orders")
         .snapshots();
   }
 
-  // --- CANCELLATION MANAGEMENT ---
+  // ===========================================================================
+  // 6. CANCELLATION REQUESTS & REFUNDS
+  // ===========================================================================
 
-  // Request order cancellation (User side)
+  /// Client initiates cancellation request
   Future<void> requestOrderCancellation(
     String userId,
     String orderDocId,
     Map<String, dynamic> cancelData,
   ) async {
-    // 1. Update status in User's Order document
-    await FirebaseFirestore.instance
-        .collection("users")
-        .doc(userId)
+    // 1. Update status in User subcollection
+    if (userId.isNotEmpty) {
+      await _firestore
+          .collection("users")
+          .doc(userId)
+          .collection("Orders")
+          .doc(orderDocId)
+          .update({"Status": "Cancellation Requested"});
+    }
+
+    // 2. Update status in global Admin collection
+    await _firestore
         .collection("Orders")
         .doc(orderDocId)
         .update({"Status": "Cancellation Requested"});
 
-    // 2. Update status in Admin Orders collection
-    await FirebaseFirestore.instance
-        .collection("Orders")
-        .doc(orderDocId)
-        .update({"Status": "Cancellation Requested"});
-
-    // 3. Create entry in a dedicated Cancellation Requests collection
-    await FirebaseFirestore.instance
+    // 3. Record entry in CancellationRequests collection
+    await _firestore
         .collection("CancellationRequests")
         .doc(orderDocId)
         .set(cancelData);
   }
 
-  // Admin action: Approve or Reject Cancellation
+  /// Admin approves or rejects cancellation request
   Future<void> handleCancellationRequest({
     required String orderDocId,
-    required String userId,
+    required String? userId,
     required bool approve,
+    int? refundAmount,
   }) async {
-    String newStatus = approve ? "Cancelled" : "On the way";
+    String newStatus = approve ? "Cancelled" : "Processing";
 
-    // Update User Order document
-    await FirebaseFirestore.instance
-        .collection("users")
-        .doc(userId)
+    // 1. Update Global Order document
+    await _firestore
         .collection("Orders")
         .doc(orderDocId)
         .update({"Status": newStatus});
 
-    // Update Admin Order document
-    await FirebaseFirestore.instance
-        .collection("Orders")
-        .doc(orderDocId)
-        .update({"Status": newStatus});
+    // 2. Update User Order document if user ID exists
+    if (userId != null && userId.isNotEmpty) {
+      await _firestore
+          .collection("users")
+          .doc(userId)
+          .collection("Orders")
+          .doc(orderDocId)
+          .update({"Status": newStatus});
 
-    // Update CancellationRequests document
-    await FirebaseFirestore.instance
-        .collection("CancellationRequests")
-        .doc(orderDocId)
-        .update({
-          "requestStatus": approve ? "Approved" : "Rejected",
-          "processedAt": FieldValue.serverTimestamp(),
-        });
+      // 3. Optional: Issue wallet refund if approved and refund amount specified
+      if (approve && refundAmount != null && refundAmount > 0) {
+        await updateUserWallet(refundAmount, userId);
+        await addUserTransaction({
+          "Amount": refundAmount.toString(),
+          "TimeStamp": DateTime.now().millisecondsSinceEpoch.toString(),
+          "Type": "Refund for Order #$orderDocId",
+        }, userId);
+      }
+    }
+
+    // 4. Update Cancellation request entry status
+    await _firestore.collection("CancellationRequests").doc(orderDocId).set({
+      "requestStatus": approve ? "Approved" : "Rejected",
+      "processedAt": FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 }
