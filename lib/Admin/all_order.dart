@@ -12,8 +12,8 @@ class AllOrders extends StatefulWidget {
 class _AllOrdersState extends State<AllOrders> {
   Stream? orderStream;
 
-  getontheload() async {
-    orderStream = await DatabaseMethods().getAdminOrders();
+  Future<void> getontheload() async {
+    orderStream = DatabaseMethods().getAdminOrders();
     setState(() {});
   }
 

@@ -34,7 +34,7 @@ class DatabaseMethods {
   }
 
   // ===========================================================================
-  // 2. USER PROFILE & ACCOUNT MANAGEMENT
+  // 2. USER & ADMIN PROFILE MANAGEMENT
   // ===========================================================================
 
   /// Stream real-time snapshot of all client users (Admin View)
@@ -42,10 +42,16 @@ class DatabaseMethods {
     return _firestore.collection("users").snapshots();
   }
 
-  /// Save new user profile upon registration
+  /// Save new user profile upon registration (Client)
   Future<void> addUserDetails(
       Map<String, dynamic> userInfoMap, String id) async {
     await _firestore.collection("users").doc(id).set(userInfoMap);
+  }
+
+  /// Save or update Admin details using Firebase Auth UID (Admin)
+  Future<void> addAdminDetails(
+      Map<String, dynamic> adminInfoMap, String uid) async {
+    await _firestore.collection("Admin").doc(uid).set(adminInfoMap);
   }
 
   /// Get user profile document by UID
@@ -89,7 +95,7 @@ class DatabaseMethods {
     }
   }
 
-  /// Delete user profile (Admin)
+  /// Delete user profile document (Admin or Self)
   Future<void> deleteUser(String id) async {
     await _firestore.collection("users").doc(id).delete();
   }
@@ -216,7 +222,7 @@ class DatabaseMethods {
   }
 
   // ===========================================================================
-  // 6. CANCELLATION REQUESTS & REFUNDS
+  // 6. CANCELLATION REQUESTS & ATOMIC REFUNDS (BATCH WRITES)
   // ===========================================================================
 
   /// Client initiates cancellation request
@@ -225,68 +231,86 @@ class DatabaseMethods {
     String orderDocId,
     Map<String, dynamic> cancelData,
   ) async {
+    WriteBatch batch = _firestore.batch();
+
     // 1. Update status in User subcollection
     if (userId.isNotEmpty) {
-      await _firestore
+      DocumentReference userOrderRef = _firestore
           .collection("users")
           .doc(userId)
           .collection("Orders")
-          .doc(orderDocId)
-          .update({"Status": "Cancellation Requested"});
+          .doc(orderDocId);
+      batch.update(userOrderRef, {"Status": "Cancellation Requested"});
     }
 
     // 2. Update status in global Admin collection
-    await _firestore
-        .collection("Orders")
-        .doc(orderDocId)
-        .update({"Status": "Cancellation Requested"});
+    DocumentReference globalOrderRef =
+        _firestore.collection("Orders").doc(orderDocId);
+    batch.update(globalOrderRef, {"Status": "Cancellation Requested"});
 
     // 3. Record entry in CancellationRequests collection
-    await _firestore
-        .collection("CancellationRequests")
-        .doc(orderDocId)
-        .set(cancelData);
+    DocumentReference cancelReqRef =
+        _firestore.collection("CancellationRequests").doc(orderDocId);
+    batch.set(cancelReqRef, cancelData);
+
+    await batch.commit();
   }
 
-  /// Admin approves or rejects cancellation request
+  /// Admin approves or rejects cancellation request atomically
   Future<void> handleCancellationRequest({
     required String orderDocId,
     required String? userId,
     required bool approve,
     int? refundAmount,
   }) async {
+    WriteBatch batch = _firestore.batch();
     String newStatus = approve ? "Cancelled" : "Processing";
 
     // 1. Update Global Order document
-    await _firestore
-        .collection("Orders")
-        .doc(orderDocId)
-        .update({"Status": newStatus});
+    DocumentReference globalOrderRef =
+        _firestore.collection("Orders").doc(orderDocId);
+    batch.update(globalOrderRef, {"Status": newStatus});
 
-    // 2. Update User Order document if user ID exists
+    // 2. Update Cancellation Request Document
+    DocumentReference cancelReqRef =
+        _firestore.collection("CancellationRequests").doc(orderDocId);
+    batch.set(
+        cancelReqRef,
+        {
+          "requestStatus": approve ? "Approved" : "Rejected",
+          "processedAt": FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true));
+
+    // 3. Update User Sub-collection & Issue Wallet Refund if applicable
     if (userId != null && userId.isNotEmpty) {
-      await _firestore
+      DocumentReference userOrderRef = _firestore
           .collection("users")
           .doc(userId)
           .collection("Orders")
-          .doc(orderDocId)
-          .update({"Status": newStatus});
+          .doc(orderDocId);
+      batch.update(userOrderRef, {"Status": newStatus});
 
-      // 3. Optional: Issue wallet refund if approved and refund amount specified
       if (approve && refundAmount != null && refundAmount > 0) {
-        await updateUserWallet(refundAmount, userId);
-        await addUserTransaction({
+        // Update user's wallet
+        DocumentReference userRef = _firestore.collection("users").doc(userId);
+        batch.update(userRef, {"Wallet": FieldValue.increment(refundAmount)});
+
+        // Add refund transaction log entry
+        DocumentReference transRef = _firestore
+            .collection("users")
+            .doc(userId)
+            .collection("Transactions")
+            .doc();
+        batch.set(transRef, {
           "Amount": refundAmount.toString(),
           "TimeStamp": DateTime.now().millisecondsSinceEpoch.toString(),
           "Type": "Refund for Order #$orderDocId",
-        }, userId);
+        });
       }
     }
 
-    // 4. Update Cancellation request entry status
-    await _firestore.collection("CancellationRequests").doc(orderDocId).set({
-      "requestStatus": approve ? "Approved" : "Rejected",
-      "processedAt": FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    // Commit all operations as a single atomic transaction
+    await batch.commit();
   }
 }
